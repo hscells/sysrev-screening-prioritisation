@@ -1,0 +1,6 @@
+[submodule "RankLib"]
+	path = RankLib
+	url = git@github.com:hscells/RankLib.git
+[submodule "ltr-query"]
+	path = ltr-query
+	url = git@github.com:hscells/ltr-query.git
