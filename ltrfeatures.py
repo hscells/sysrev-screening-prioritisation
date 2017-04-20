@@ -41,9 +41,11 @@ import argparse
 import json
 import sys
 from copy import deepcopy
+from functools import partial
 
 from collections import namedtuple, OrderedDict
 from elasticsearch import Elasticsearch
+from multiprocessing import Pool
 from typing import List, Dict
 
 RankLibRow = namedtuple('RankLibRow', ['target', 'qid', 'features', 'info'])
@@ -65,6 +67,8 @@ feature_query = {
         }
     }
 }
+
+output_pointer = object
 
 
 def populate_feature_query(document_ids: List[str], query: dict) -> dict:
@@ -167,73 +171,62 @@ def map_identifier_to_feature(weight: str, field: str, term: str,
     return inverted_vocabulary[feature_identifier(weight, field, term)]
 
 
-def generate_features(es_url: str, idx: str, mapping: OrderedDict,
-                      queries: List[OrderedDict]) -> List[RankLibRow]:
+def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: OrderedDict,
+                      elastic_url: str, elastic_index: str) -> None:
     """
     From the data exported from medline2elastic, extract the doc ids
     :return: 
     """
     # create the elasticsearch object
-    es = Elasticsearch([es_url])
-
-    # store the rows of the training data
-    ranklib_training = []
+    es = Elasticsearch([elastic_url])
 
     # the names of the weights we will use
-    weights = ['df', 'tf', 'idf']
 
-    # generate a vocabulary from the queries and a mapping to features for RankLib
-    query_vocabulary = generate_query_vocabulary(queries)
-    feature_vocabulary_mapping = map_query_vocabulary_to_features(vocabulary=query_vocabulary,
-                                                                  weights=weights)
+    document_id = str(query['document_id'])
+    query_id = query['query_id']
+    es_query = query['query']
+    judged_documents = mapping[document_id]
+    judged_document_ids = list(judged_documents.keys())
 
-    for query in queries:
-        document_id = str(query['document_id'])
-        query_id = query['query_id']
-        es_query = query['query']
-        judged_documents = mapping[document_id]
-        judged_document_ids = list(judged_documents.keys())
+    # get a rank score (for a feature)
+    res = es.search(index=elastic_index,
+                    body=populate_feature_query(judged_document_ids, es_query))
 
-        # get a rank score (for a feature)
-        res = es.search(index=idx,
-                        body=populate_feature_query(judged_document_ids, es_query))
+    for pmid, relevance in judged_documents.items():
+        features = OrderedDict()
+        for i in range(len(fv_mapping)):
+            features[i] = 0
+        # score
+        features[1] = 0
+        # hits
+        features[2] = res['hits']['total']
 
-        for pmid, relevance in judged_documents.items():
-            features = OrderedDict()
-            for i in range(len(feature_vocabulary_mapping)):
-                features[i] = 0
-            # score
-            features[1] = 0
-            # hits
-            features[2] = res['hits']['total']
+        # populate the score feature
+        for retrieved_document in res['hits']['hits']:
+            if retrieved_document['_id'] == pmid:
+                features[1] = retrieved_document['_score']
 
-            # populate the score feature
-            for retrieved_document in res['hits']['hits']:
-                if retrieved_document['_id'] == pmid:
-                    features[1] = retrieved_document['_score']
+        # get elasticsearch statistics
+        statistics = es.termvectors(index=elastic_index, doc_type='doc', id=pmid)
 
-            # get elasticsearch statistics
-            statistics = es.termvectors(index=idx, doc_type='doc', id=pmid)
+        # we need a subset of the vocabulary to work on
+        query_terms = generate_query_vocabulary([OrderedDict([('query', es_query)])])
+        for field, terms in query_terms.items():
+            for term in terms:
+                if statistics['found']:
+                    tv = statistics['term_vectors']
+                    df = map_identifier_to_feature('df', field, term,
+                                                   fv_mapping)
+                    tf = map_identifier_to_feature('tf', field, term,
+                                                   fv_mapping)
+                    # idf = map_identifier_to_feature('idf', field, term,
+                    #                                 feature_vocabulary_mapping)
+                    features[df] = tv[field]['field_statistics']['sum_doc_freq']
+                    features[tf] = tv['terms'][term]['term_freq']
 
-            # we need a subset of the vocabulary to work on
-            query_terms = generate_query_vocabulary([OrderedDict([('query', es_query)])])
-            for field, terms in query_terms.items():
-                for term in terms:
-                    if statistics['found']:
-                        tv = statistics['term_vectors']
-                        df = map_identifier_to_feature('df', field, term,
-                                                       feature_vocabulary_mapping)
-                        tf = map_identifier_to_feature('tf', field, term,
-                                                       feature_vocabulary_mapping)
-                        # idf = map_identifier_to_feature('idf', field, term,
-                        #                                 feature_vocabulary_mapping)
-                        features[df] = tv[field]['field_statistics']['sum_doc_freq']
-                        features[tf] = tv['terms'][term]['term_freq']
-
-            ranklib_training.append(
-                RankLibRow(target=relevance, qid=query_id, features=features, info=pmid))
-
-    return ranklib_training
+        output_pointer.write(
+            format_ranklib_row(RankLibRow(target=relevance, qid=query_id, features=features,
+                                          info=pmid)))
 
 
 def format_ranklib_row(row: RankLibRow) -> str:
@@ -244,7 +237,7 @@ def format_ranklib_row(row: RankLibRow) -> str:
     """
     features = ''.join(
         ['{}:{} '.format(feature, value) for (feature, value) in row.features.items()])
-    return '{} qid:{} {}# {}'.format(row.target, row.qid, features, row.info)
+    return '{} qid:{} {}# {}\n'.format(row.target, row.qid, features, row.info)
 
 
 def format_ranklib(rows: List[RankLibRow]) -> str:
@@ -253,7 +246,7 @@ def format_ranklib(rows: List[RankLibRow]) -> str:
     :param rows: 
     :return: 
     """
-    return '\n'.join([format_ranklib_row(row) for row in rows])
+    return ''.join([format_ranklib_row(row) for row in rows])
 
 
 if __name__ == '__main__':
@@ -266,7 +259,7 @@ if __name__ == '__main__':
     argparser.add_argument('-q', '--queries', help='The queries file', required=True,
                            type=argparse.FileType('r'))
     argparser.add_argument('-o', '--output', help='The file to output to', default=sys.stdout,
-                           type=argparse.FileType('w'))
+                           type=argparse.FileType('w+'))
     argparser.add_argument('--elastic-url', help='Address of the elasticsearch instance',
                            default='http://localhost:9200', type=str)
     argparser.add_argument('--elastic-index', help='Index to train using',
@@ -274,10 +267,22 @@ if __name__ == '__main__':
 
     args = argparser.parse_args()
 
-    args.output.write(
-        format_ranklib(
-            generate_features(
-                args.elastic_url,
-                args.elastic_index,
-                json.load(args.mapping, object_pairs_hook=OrderedDict),
-                json.load(args.queries, object_pairs_hook=OrderedDict))))
+    output_pointer = args.output
+
+    input_queries = json.load(args.queries, object_pairs_hook=OrderedDict)
+    # generate a vocabulary from the queries and a mapping to features for RankLib
+    query_vocabulary = generate_query_vocabulary(input_queries)
+    feature_vocabulary_mapping = map_query_vocabulary_to_features(vocabulary=query_vocabulary,
+                                                                  weights=['df', 'tf', 'idf'])
+
+    generate_features_partial = partial(generate_features,
+                                        mapping=json.load(args.mapping,
+                                                          object_pairs_hook=OrderedDict),
+                                        fv_mapping=feature_vocabulary_mapping,
+                                        elastic_url=args.elastic_url,
+                                        elastic_index=args.elastic_index)
+
+    p = Pool()
+    annotated_data = p.map(generate_features_partial, input_queries)
+    p.close()
+    p.join()
