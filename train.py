@@ -97,8 +97,6 @@ def generate_features(es_url: str, idx: str, mapping: dict, queries: dict) -> Li
         res = es.search(index=idx,
                         body=populate_feature_query(judged_document_ids, es_query))
 
-        print(es_query)
-
         for pmid, relevance in judged_documents.items():
             features = OrderedDict()
             # score
