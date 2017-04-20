@@ -39,7 +39,6 @@ Apr 2017
 
 import argparse
 import json
-import sys
 from copy import deepcopy
 from functools import partial
 
@@ -67,8 +66,6 @@ feature_query = {
         }
     }
 }
-
-output_pointer = object
 
 
 def populate_feature_query(document_ids: List[str], query: dict) -> dict:
@@ -225,7 +222,6 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: Orde
                         features[df] = tv['field_statistics']['sum_doc_freq']
                         if term in tv['terms']:
                             features[tf] = tv['terms'][term]['term_freq']
-
         output_pointer.write(
             format_ranklib_row(RankLibRow(target=relevance, qid=query_id, features=features,
                                           info=pmid)))
@@ -260,8 +256,8 @@ if __name__ == '__main__':
     # download this from medline2elastic at /api/queries/elastic/pico
     argparser.add_argument('-q', '--queries', help='The queries file', required=True,
                            type=argparse.FileType('r'))
-    argparser.add_argument('-o', '--output', help='The file to output to', default=sys.stdout,
-                           type=argparse.FileType('w+'))
+    argparser.add_argument('-o', '--output', help='The file to output to', type=str,
+                           required=True)
     argparser.add_argument('--elastic-url', help='Address of the elasticsearch instance',
                            default='http://localhost:9200', type=str)
     argparser.add_argument('--elastic-index', help='Index to train using',
@@ -269,7 +265,8 @@ if __name__ == '__main__':
 
     args = argparser.parse_args()
 
-    output_pointer = args.output
+    output_pointer = open(args.output, 'w').close()
+    output_pointer = open(args.output, 'w+')
 
     input_queries = json.load(args.queries, object_pairs_hook=OrderedDict)
     # generate a vocabulary from the queries and a mapping to features for RankLib
@@ -288,3 +285,5 @@ if __name__ == '__main__':
     annotated_data = p.map(generate_features_partial, input_queries)
     p.close()
     p.join()
+
+    output_pointer.close()
