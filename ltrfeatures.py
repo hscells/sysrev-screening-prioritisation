@@ -206,12 +206,12 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: Orde
             if retrieved_document['_id'] == pmid:
                 features[1] = retrieved_document['_score']
 
-        # get elasticsearch statistics
-        statistics = es.termvectors(index=elastic_index, doc_type='doc', id=pmid)
-
         # we need a subset of the vocabulary to work on
         query_terms = generate_query_vocabulary([OrderedDict([('query', es_query)])])
         for field, terms in query_terms.items():
+            # get elasticsearch statistics
+            statistics = es.termvectors(index=elastic_index, doc_type='doc', id=pmid,
+                                        fields=field)
             for term in terms:
                 if statistics['found']:
                     tv = statistics['term_vectors']
