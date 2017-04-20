@@ -214,16 +214,17 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: Orde
                                         fields=field)
             for term in terms:
                 if statistics['found']:
-                    tv = statistics['term_vectors'][field]
-                    df = map_identifier_to_feature('df', field, term,
-                                                   fv_mapping)
-                    tf = map_identifier_to_feature('tf', field, term,
-                                                   fv_mapping)
-                    # idf = map_identifier_to_feature('idf', field, term,
-                    #                                 feature_vocabulary_mapping)
-                    features[df] = tv['field_statistics']['sum_doc_freq']
-                    if term in tv['terms']:
-                        features[tf] = tv['terms'][term]['term_freq']
+                    if field in statistics['term_vectors']:
+                        tv = statistics['term_vectors'][field]
+                        df = map_identifier_to_feature('df', field, term,
+                                                       fv_mapping)
+                        tf = map_identifier_to_feature('tf', field, term,
+                                                       fv_mapping)
+                        # idf = map_identifier_to_feature('idf', field, term,
+                        #                                 feature_vocabulary_mapping)
+                        features[df] = tv['field_statistics']['sum_doc_freq']
+                        if term in tv['terms']:
+                            features[tf] = tv['terms'][term]['term_freq']
 
         output_pointer.write(
             format_ranklib_row(RankLibRow(target=relevance, qid=query_id, features=features,
