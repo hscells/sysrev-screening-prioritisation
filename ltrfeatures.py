@@ -213,13 +213,13 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: Orde
                 if statistics['found']:
                     if field in statistics['term_vectors']:
                         tv = statistics['term_vectors'][field]
-                        df = map_identifier_to_feature('df', field, term,
-                                                       fv_mapping)
+                        # df = map_identifier_to_feature('df', field, term,
+                        #                                fv_mapping)
                         tf = map_identifier_to_feature('tf', field, term,
                                                        fv_mapping)
                         # idf = map_identifier_to_feature('idf', field, term,
                         #                                 feature_vocabulary_mapping)
-                        features[df] = tv['field_statistics']['sum_doc_freq']
+                        # features[df] = tv['field_statistics']['sum_doc_freq']
                         sum_ttf = tv['field_statistics']['sum_ttf']
                         if term in tv['terms']:
                             features[tf] = 0.0 + tv['terms'][term]['term_freq'] / sum_ttf
@@ -270,10 +270,11 @@ if __name__ == '__main__':
     output_pointer = open(args.output, 'w+')
 
     input_queries = json.load(args.queries, object_pairs_hook=OrderedDict)
+    print(len(input_queries))
     # generate a vocabulary from the queries and a mapping to features for RankLib
     query_vocabulary = generate_query_vocabulary(input_queries)
     feature_vocabulary_mapping = map_query_vocabulary_to_features(vocabulary=query_vocabulary,
-                                                                  weights=['df', 'tf', 'idf'])
+                                                                  weights=['tf'])
 
     generate_features_partial = partial(generate_features,
                                         mapping=json.load(args.mapping,
