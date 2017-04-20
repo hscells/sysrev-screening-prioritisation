@@ -220,8 +220,9 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: Orde
                         # idf = map_identifier_to_feature('idf', field, term,
                         #                                 feature_vocabulary_mapping)
                         features[df] = tv['field_statistics']['sum_doc_freq']
+                        sum_ttf = tv['field_statistics']['sum_ttf']
                         if term in tv['terms']:
-                            features[tf] = tv['terms'][term]['term_freq']
+                            features[tf] = 0.0 + tv['terms'][term]['term_freq'] / sum_ttf
         output_pointer.write(
             format_ranklib_row(RankLibRow(target=relevance, qid=query_id, features=features,
                                           info=pmid)))
