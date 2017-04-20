@@ -39,6 +39,10 @@ training a model, inside the ranklib folder, run:
 ./gradlew build
 ```
 
-This will produce a binary at `ranklib/build/libs/ranklib.jar`. This is an important path in the project - 
+This will produce a binary at `ranklib/build/libs/ranklib.jar`. This is an important path in the project - but will be 
+built automatically in the pipeline.
+
+The pipeline extracts features and learns a model. To run the pipeline, use `./trainltr.sh`. You might need to tweak the
+parameters in it.
 
 
