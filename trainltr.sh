@@ -9,7 +9,7 @@ if [ ! -f ${ranklib_path} ]; then
 fi
 
 # Create training data by using elasticsearch to generate features for RankLib
-python3 ./ltrfeatures.py --mapping ./pmid-mapping.json --queries ./elastic-pico-queries.json > training.txt
+python3 ./ltrfeatures.py --mapping ./pmid-mapping.json --queries ./elastic-pico-queries.json --output training.txt
 
 # Train a model
 # https://sourceforge.net/p/lemur/wiki/RankLib%20How%20to%20use/
