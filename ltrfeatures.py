@@ -2,10 +2,11 @@
 Create training data for RankLib
 
 ------------------------------------------------------------------------------------------------
+https://sourceforge.net/p/lemur/wiki/RankLib%20File%20Format/
 
 The file format for the training data (also testing/validation data) is the same as for 
-SVM-Rank. This is also the format used in LETOR datasets. Each of the following lines represents
-one training example and is of the following format:
+SVM-Rank. This is also the format used in LETOR data sets. Each of the following lines 
+represents one training example and is of the following format:
 
 <line> .=. <target> qid:<qid> <feature>:<value> <feature>:<value> ... <feature>:<value> # <info>
 <target> .=. <positive integer>
@@ -43,9 +44,10 @@ from copy import deepcopy
 
 from collections import namedtuple, OrderedDict
 from elasticsearch import Elasticsearch
-from typing import List
+from typing import List, Dict
 
 RankLibRow = namedtuple('RankLibRow', ['target', 'qid', 'features', 'info'])
+FeatureIdentifier = namedtuple('FeatureIdentifier', ['weight', 'field', 'term'])
 
 feature_query = {
     'query': {
@@ -78,13 +80,113 @@ def populate_feature_query(document_ids: List[str], query: dict) -> dict:
     return base
 
 
-def generate_features(es_url: str, idx: str, mapping: dict, queries: dict) -> List[RankLibRow]:
+def generate_query_vocabulary(queries: List[OrderedDict]) -> OrderedDict:
+    """
+    
+    :param queries: 
+    :return: 
+    """
+
+    # we store the vocabulary outside of the tree traversal for convenience
+    vocabulary = OrderedDict()
+
+    def recurse(node: Dict) -> None:
+        """
+        Traverse the query tree, adding terms and the related fields to the vocabulary as we go.
+        :param node: Pointer to the node in the tree to continue to recurse down.
+        """
+        # keep diving if it's a list
+        if type(node) is list:
+            for item in node:
+                recurse(item)
+        # otherwise it might be a match
+        elif type(node) is dict or type(node) is OrderedDict:
+            # when we find a terminal leaf, add it to the vocabulary
+            for key in node.keys():
+                if key == 'match' or key == 'match_phrase':
+                    terminals = list(node[list(node.keys())[0]].items())[0]
+                    field, term = terminals[0].replace('.stemmed', ''), terminals[1]
+                    if field not in vocabulary:
+                        vocabulary[field] = set()
+                    vocabulary[field].add(term)
+                elif key == 'multi_match':
+                    fields, term = node[key]['fields'], node[key]['query']
+                    for field in fields:
+                        field = field.replace('.stemmed', '')
+                        if field not in vocabulary:
+                            vocabulary[field] = set()
+                        vocabulary[field].add(term)
+                # if the node wasn't terminal, dive deeper
+                else:
+                    recurse(node[key])
+        else:
+            return
+
+    # traverse down the query tree to find the terms and matching fields
+    for query in queries:
+        recurse(query['query'])
+
+    for k, v in vocabulary.items():
+        vocabulary[k] = sorted(v)
+
+    return vocabulary
+
+
+def feature_identifier(weight: str, field: str, term: str) -> str:
+    return '{}{}{}'.format(weight, field.upper().replace('.', ''), ''.join(term))
+
+
+def map_query_vocabulary_to_features(vocabulary: OrderedDict, weights: list,
+                                     start_index=2) -> OrderedDict:
+    """
+    
+    :param vocabulary: 
+    :param weights: 
+    :param start_index: 
+    :return: 
+    """
+    inverted_vocabulary = OrderedDict()
+    for field, terms in vocabulary.items():
+        for term in terms:
+            for weight in weights:
+                inverted_vocabulary[feature_identifier(weight, field, term)] = start_index
+                start_index += 1
+    return inverted_vocabulary
+
+
+def map_identifier_to_feature(weight: str, field: str, term: str,
+                              inverted_vocabulary: dict) -> int:
+    """
+    
+    :param weight: 
+    :param field: 
+    :param term: 
+    :param inverted_vocabulary: 
+    :return: 
+    """
+    return inverted_vocabulary[feature_identifier(weight, field, term)]
+
+
+def generate_features(es_url: str, idx: str, mapping: OrderedDict,
+                      queries: List[OrderedDict]) -> List[RankLibRow]:
     """
     From the data exported from medline2elastic, extract the doc ids
     :return: 
     """
+    # create the elasticsearch object
     es = Elasticsearch([es_url])
+
+    # store the rows of the training data
     ranklib_training = []
+
+    # the names of the weights we will use
+    weights = ['df', 'tf', 'idf']
+
+    # generate a vocabulary from the queries and a mapping to features for RankLib
+    query_vocabulary = generate_query_vocabulary(queries)
+    feature_vocabulary_mapping = map_query_vocabulary_to_features(vocabulary=query_vocabulary,
+                                                                  weights=weights)
+
     for query in queries:
         document_id = str(query['document_id'])
         query_id = query['query_id']
@@ -92,20 +194,41 @@ def generate_features(es_url: str, idx: str, mapping: dict, queries: dict) -> Li
         judged_documents = mapping[document_id]
         judged_document_ids = list(judged_documents.keys())
 
-        es_query['bool'].pop('must_not')
-
+        # get a rank score (for a feature)
         res = es.search(index=idx,
                         body=populate_feature_query(judged_document_ids, es_query))
 
         for pmid, relevance in judged_documents.items():
             features = OrderedDict()
+            for i in range(len(feature_vocabulary_mapping)):
+                features[i] = 0
             # score
             features[1] = 0
             # hits
             features[2] = res['hits']['total']
+
+            # populate the score feature
             for retrieved_document in res['hits']['hits']:
                 if retrieved_document['_id'] == pmid:
                     features[1] = retrieved_document['_score']
+
+            # get elasticsearch statistics
+            statistics = es.termvectors(index=idx, doc_type='doc', id=pmid)
+
+            # we need a subset of the vocabulary to work on
+            query_terms = generate_query_vocabulary([OrderedDict([('query', es_query)])])
+            for field, terms in query_terms.items():
+                for term in terms:
+                    if statistics['found']:
+                        tv = statistics['term_vectors']
+                        df = map_identifier_to_feature('df', field, term,
+                                                       feature_vocabulary_mapping)
+                        tf = map_identifier_to_feature('tf', field, term,
+                                                       feature_vocabulary_mapping)
+                        # idf = map_identifier_to_feature('idf', field, term,
+                        #                                 feature_vocabulary_mapping)
+                        features[df] = tv[field]['field_statistics']['sum_doc_freq']
+                        features[tf] = tv['terms'][term]['term_freq']
 
             ranklib_training.append(
                 RankLibRow(target=relevance, qid=query_id, features=features, info=pmid))
@@ -156,5 +279,5 @@ if __name__ == '__main__':
             generate_features(
                 args.elastic_url,
                 args.elastic_index,
-                json.load(args.mapping),
-                json.load(args.queries))))
+                json.load(args.mapping, object_pairs_hook=OrderedDict),
+                json.load(args.queries, object_pairs_hook=OrderedDict))))

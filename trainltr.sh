@@ -12,4 +12,5 @@ fi
 python3 ./ltrfeatures.py --mapping ./pmid-mapping.json --queries ./elastic-pico-queries.json > training.txt
 
 # Train a model
-java -jar ${ranklib_path} -train training.txt -ranker 6 -save model.txt -gmax 1 -metric2t NDCG@100
+# https://sourceforge.net/p/lemur/wiki/RankLib%20How%20to%20use/
+java -jar ${ranklib_path} -train training.txt -ranker 6 -save model.txt -gmax 1 -metric2t NDCG@100 -tvs 0.2
