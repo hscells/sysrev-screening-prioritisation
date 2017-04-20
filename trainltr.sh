@@ -12,4 +12,4 @@ fi
 python3 ./ltrfeatures.py --mapping ./pmid-mapping.json --queries ./elastic-pico-queries.json > training.txt
 
 # Train a model
-java -jar ${ranklib_path} -train training.txt -ranker 6 -save model.txt
+java -jar ${ranklib_path} -train training.txt -ranker 6 -save model.txt -gmax 1 -metric2t NDCG@100
