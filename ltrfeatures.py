@@ -191,8 +191,8 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: Orde
 
     for pmid, relevance in judged_documents.items():
         features = OrderedDict()
-        for i in range(len(fv_mapping)):
-            features[i] = 0
+        # for i in range(1, len(fv_mapping) + 1):
+        #     features[i] = 0.0
         # score
         features[1] = 0
         # hits
@@ -220,8 +220,8 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: Orde
                         # idf = map_identifier_to_feature('idf', field, term,
                         #                                 feature_vocabulary_mapping)
                         # features[df] = tv['field_statistics']['sum_doc_freq']
-                        sum_ttf = tv['field_statistics']['sum_ttf']
                         if term in tv['terms']:
+                            sum_ttf = tv['field_statistics']['sum_ttf']
                             features[tf] = 0.0 + tv['terms'][term]['term_freq'] / sum_ttf
         output_pointer.write(
             format_ranklib_row(RankLibRow(target=relevance, qid=query_id, features=features,
@@ -270,7 +270,6 @@ if __name__ == '__main__':
     output_pointer = open(args.output, 'w+')
 
     input_queries = json.load(args.queries, object_pairs_hook=OrderedDict)
-    print(len(input_queries))
     # generate a vocabulary from the queries and a mapping to features for RankLib
     query_vocabulary = generate_query_vocabulary(input_queries)
     feature_vocabulary_mapping = map_query_vocabulary_to_features(vocabulary=query_vocabulary,

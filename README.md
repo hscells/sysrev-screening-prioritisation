@@ -39,8 +39,6 @@ training a model, inside the ranklib folder, run:
 ./gradlew build
 ```
 
-This will produce a binary at `ranklib/build/libs/ranklib.jar`. This is an important path in the project.
-
-
+This will produce a binary at `ranklib/build/libs/ranklib.jar`. This is an important path in the project - 
 
 
