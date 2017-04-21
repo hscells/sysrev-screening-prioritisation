@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Comment this line out if your JAVA_HOME is somewhere else.
-JAVA_HOME=$(/usr/libexec/java_home)
+export JAVA_HOME=$(/usr/libexec/java_home)
 
 # Build the plugin
 cd ltr-query
