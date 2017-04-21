@@ -16,47 +16,49 @@ TrecResult = namedtuple('TrecResult',
                         ['query_id', 'q0', 'document_id', 'rank', 'score', 'label'])
 
 
-def search_baseline(query: dict, es: Elasticsearch, index: str) -> List[TrecResult]:
+def search_baseline(queries: dict, es: Elasticsearch, index: str) -> List[TrecResult]:
     """
     Simulate the query as it would normally be issued to PubMed.
+    :param queries: 
     :param index: 
     :param es: 
-    :param query: 
     :return: 
     """
-    res = es.search(index=index, doc_type='doc', body={'query': query['query']},
-                    size=100, request_timeout=100)
+    for query in queries:
+        res = es.search(index=index, doc_type='doc', body={'query': query['query']},
+                        size=100, request_timeout=100)
 
-    for rank, hit in enumerate(res['hits']['hits']):
-        yield TrecResult(query['document_id'], '0', hit['_id'], rank + 1,
-                         hit['_score'], 'baseline')
+        for rank, hit in enumerate(res['hits']['hits']):
+            yield TrecResult(query['document_id'], '0', hit['_id'], rank + 1,
+                             hit['_score'], 'baseline')
 
 
-def search_ltr(query: dict, es: Elasticsearch, index: str, model: str) -> List[TrecResult]:
+def search_ltr(queries: dict, es: Elasticsearch, index: str, model: str) -> List[TrecResult]:
     """
     Re-rank the result list using an ltr model.
-    :param query: 
+    :param queries: 
     :param es: 
     :param index: 
     :param model: 
     :return: 
     """
-    res = es.search(index=index, doc_type='doc',
-                    size=100, request_timeout=100,
-                    body={
-                        "query": {
-                            "ltr": {
-                                "model": {
-                                    "stored": model
-                                },
-                                "features": [{"constant_score": {query['query']}}]
+    for query in queries:
+        res = es.search(index=index, doc_type='doc',
+                        size=100, request_timeout=100,
+                        body={
+                            "query": {
+                                "ltr": {
+                                    "model": {
+                                        "stored": model
+                                    },
+                                    "features": [{"constant_score": {'query': query['query']}}]
+                                }
                             }
-                        }
-                    })
+                        })
 
-    for rank, hit in enumerate(res['hits']['hits']):
-        yield TrecResult(query['document_id'], '0', hit['_id'], rank + 1,
-                         hit['_score'], 'baseline')
+        for rank, hit in enumerate(res['hits']['hits']):
+            yield TrecResult(query['document_id'], '0', hit['_id'], rank + 1,
+                             hit['_score'], 'baseline')
 
 
 def format_trec_results(results: List[TrecResult]):
@@ -88,17 +90,19 @@ if __name__ == '__main__':
 
     args = argparser.parse_args()
 
+    Q = json.load(args.queries)
+
     args.baseline_output.write(
         format_trec_results(
             search_baseline(
-                json.load(args.queries),
+                Q,
                 Elasticsearch([args.elastic_url]),
                 args.elastic_index)))
 
     args.ltr_output.write(
         format_trec_results(
             search_ltr(
-                json.load(args.queries),
+                Q,
                 Elasticsearch([args.elastic_url]),
                 args.elastic_index,
                 args.model)))
