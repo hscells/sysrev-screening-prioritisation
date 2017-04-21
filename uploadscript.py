@@ -17,8 +17,6 @@ if __name__ == '__main__':
     data = args.input.read()
 
     response = requests.put(urljoin(args.elastic_url, '/_scripts/ranklib/', args.model_name),
-                            data={
-                                'script': data
-                            })
+                            data={'script': data})
 
-    print(response)
+    print(response.text)
