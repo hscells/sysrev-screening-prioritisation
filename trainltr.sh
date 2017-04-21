@@ -29,7 +29,4 @@ python3 ./ltrfeatures.py --mapping ./pmid-mapping.json --queries ./elastic-pico-
 java -jar ${ranklib_path} -train training.txt -ranker 6 -save ${model_name}.txt -gmax 1 -metric2t NDCG@100 -tvs 0.2
 
 # Now we can upload the model to elasticsearch
-curl -X POST \
-     -H "Content-Type: application/json" \
-     --data "{\"script\": \"$(tr -d '\t\n' < ${model_name}.txt)}\"}" \
-     ${elasticsearch_host}:${elasticsearch_port}/_scripts/ranklib/${model_name}?pretty=true
+python3 ./uploadscript.py --input ${model_name}.txt --elastic-url http://${elasticsearch_host}:${elasticsearch_port} -v

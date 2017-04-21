@@ -1,3 +1,17 @@
+"""
+These abstract base classes are here to extend with other classes in this features folder. The
+`ltrfeatures.py` script will use this module to extract features from elasticsearch. These
+abstract classes are ignored by the script.
+
+For an example, have a look a the `tf.py` script in this folder.
+
+Harry Scells
+Apr 2017
+"""
+
+
+# TODO: Automatically find these abstract classes instead of hardcoding them.
+
 class AbstractFeature(object):
     """
     This is the abstract class for performing feature engineering. The calc function is called
