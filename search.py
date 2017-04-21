@@ -93,12 +93,12 @@ if __name__ == '__main__':
             search_baseline(
                 json.load(args.queries),
                 Elasticsearch([args.elastic_url]),
-                args.index)))
+                args.elastic_index)))
 
     args.ltr_output.write(
         format_trec_results(
             search_ltr(
                 json.load(args.queries),
                 Elasticsearch([args.elastic_url]),
-                args.index,
+                args.elastic_index,
                 args.model)))
