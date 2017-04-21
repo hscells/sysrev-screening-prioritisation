@@ -21,6 +21,8 @@ if __name__ == '__main__':
                            type=argparse.FileType('r'))
     argparser.add_argument('--elastic-url', help='The full url elasticsearch is running on',
                            type=str, default='http://localhost:9200')
+    argparser.add_argument('--model-name', help='The name of the model in elasticsearch',
+                           type=str, defaul='model')
     argparser.add_argument('-v', help='Verbose?', action='store_true')
 
     args = argparser.parse_args()
