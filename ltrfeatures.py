@@ -236,6 +236,7 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: Orde
             if retrieved_document['_id'] == pmid:
                 features[1] = retrieved_document['_score']
 
+        # Calculate the term features
         # we need a subset of the vocabulary to work on
         query_terms = generate_query_vocabulary([OrderedDict([('query', es_query)])])
         for field, terms in query_terms.items():
@@ -255,9 +256,15 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: Orde
                         for feature_name, feature_class in filter(term_features,
                                                                   feature_classes.items()):
                             f = map_identifier_to_feature(feature_name, field, term, fv_mapping)
-                            weight = feature_class(statistics).calc()
+                            weight = feature_class(statistics, elastic_doc, field, term).calc()
                             if weight > 0:
                                 features[f] = weight
+
+        # Calculate the query features
+        for feature_name, feature_class in filter(query_features, feature_classes.items()):
+            weight = feature_class(query).calc()
+            if weight > 0:
+                features[feature_name] = weight
 
         output_pointer.write(
             format_ranklib_row(RankLibRow(target=relevance, qid=query_id, features=features,
