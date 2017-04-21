@@ -226,15 +226,13 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: Orde
 
     for pmid, relevance in judged_documents.items():
         features = OrderedDict()
-        # for i in range(1, len(fv_mapping) + 1):
-        #     features[i] = 0.0
-        # score
-        features[1] = 0
 
         # populate the score feature
         for retrieved_document in res['hits']['hits']:
             if retrieved_document['_id'] == pmid:
-                features[1] = retrieved_document['_score']
+                score = retrieved_document['_score']
+                if score > 0:
+                    features[1] = score
 
         # Calculate the term features
         # we need a subset of the vocabulary to work on
@@ -266,9 +264,10 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: Orde
             if weight > 0:
                 features[feature_name] = weight
 
-        output_pointer.write(
-            format_ranklib_row(RankLibRow(target=relevance, qid=query_id, features=features,
-                                          info=pmid)))
+        if len(features) > 0:
+            output_pointer.write(
+                format_ranklib_row(RankLibRow(target=relevance, qid=query_id, features=features,
+                                              info=pmid)))
 
 
 def format_ranklib_row(row: RankLibRow) -> str:
