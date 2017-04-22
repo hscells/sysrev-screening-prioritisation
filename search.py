@@ -68,7 +68,7 @@ def search_ltr(query: dict, elastic_url: str,
                 }
             }
         }
-    
+
     res = es.search(index=index, doc_type='doc',
                     size=100, request_timeout=100,
                     body=rescore_query)
