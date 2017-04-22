@@ -222,7 +222,7 @@ def generate_features(query: OrderedDict, mapping: OrderedDict,
 
 def format_ranklib_row(row: RankLibRow) -> str:
     """
-    This function formats a single row to the exact format needed for RankLib traning data.
+    This function formats a single row to the exact format needed for RankLib training data.
     :param row: 
     :return: 
     """
