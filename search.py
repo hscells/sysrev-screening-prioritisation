@@ -50,27 +50,30 @@ def search_ltr(query: dict, elastic_url: str,
     """
     es = Elasticsearch([elastic_url])
     results = []
+    rescore_query = \
+        {
+            'query': query['query'],
+            'rescore': {
+                'query': {
+                    'rescore_query': {
+                        'ltr': {
+                            'model': {
+                                'stored': model
+                            },
+                            'features': [{
+                                'constant_score': {
+                                    'filter': query['query']
+                                }
+                            }]
+                        }
+                    }
+                }
+            }
+        }
+    print(json.dumps(rescore_query))
     res = es.search(index=index, doc_type='doc',
                     size=100, request_timeout=100,
-                    body={
-                        'query': query['query'],
-                        'rescore': {
-                            'query': {
-                                'rescore_query': {
-                                    'ltr': {
-                                        'model': {
-                                            'stored': model
-                                        },
-                                        'features': [{
-                                            'constant_score': {
-                                                'filter': query['query']
-                                            }
-                                        }]
-                                    }
-                                }
-                            }
-                        }
-                    })
+                    body=rescore_query)
 
     for rank, hit in enumerate(res['hits']['hits']):
         results.append(TrecResult(query['document_id'], '0', hit['_id'], rank + 1,
@@ -124,7 +127,7 @@ if __name__ == '__main__':
                           elastic_url=args.elastic_url,
                           index=args.elastic_index,
                           model=args.model)
-    args.baseline_output.write(
+    args.ltr_output.write(
         format_trec_results(
             [item for sublist in p.map(ltr_partial, Q) for item in sublist]))
     p.close()
