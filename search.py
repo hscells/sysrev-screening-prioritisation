@@ -7,58 +7,66 @@ Apr 2017
 import argparse
 import json
 import sys
+from functools import partial
 
 from collections import namedtuple
 from elasticsearch import Elasticsearch
+from multiprocessing import Pool
 from typing import List
 
 TrecResult = namedtuple('TrecResult',
                         ['query_id', 'q0', 'document_id', 'rank', 'score', 'label'])
 
 
-def search_baseline(queries: dict, es: Elasticsearch, index: str) -> List[TrecResult]:
+def search_baseline(query: dict, elastic_url: Elasticsearch,
+                    index: str) -> List[TrecResult]:
     """
     Simulate the query as it would normally be issued to PubMed.
-    :param queries: 
+    :param query: 
     :param index: 
-    :param es: 
+    :param elastic_url: 
     :return: 
     """
-    for query in queries:
-        res = es.search(index=index, doc_type='doc', body={'query': query['query']},
-                        size=100, request_timeout=100)
+    es = Elasticsearch([elastic_url])
+    results = []
+    res = es.search(index=index, doc_type='doc', body={'query': query['query']},
+                    size=100, request_timeout=100)
 
-        for rank, hit in enumerate(res['hits']['hits']):
-            yield TrecResult(query['document_id'], '0', hit['_id'], rank + 1,
-                             hit['_score'], 'baseline')
+    for rank, hit in enumerate(res['hits']['hits']):
+        results.append(TrecResult(query['document_id'], '0', hit['_id'], rank + 1,
+                                  hit['_score'], 'baseline'))
+    return results
 
 
-def search_ltr(queries: dict, es: Elasticsearch, index: str, model: str) -> List[TrecResult]:
+def search_ltr(query: dict, elastic_url: str,
+               index: str, model: str) -> List[TrecResult]:
     """
     Re-rank the result list using an ltr model.
-    :param queries: 
-    :param es: 
+    :param query: 
+    :param elastic_url: 
     :param index: 
     :param model: 
     :return: 
     """
-    for query in queries:
-        res = es.search(index=index, doc_type='doc',
-                        size=100, request_timeout=100,
-                        body={
-                            "query": {
-                                "ltr": {
-                                    "model": {
-                                        "stored": model
-                                    },
-                                    "features": [{"constant_score": {'query': query['query']}}]
-                                }
+    es = Elasticsearch([elastic_url])
+    results = []
+    res = es.search(index=index, doc_type='doc',
+                    size=100, request_timeout=100,
+                    body={
+                        "query": {
+                            "ltr": {
+                                "model": {
+                                    "stored": model
+                                },
+                                "features": [{"constant_score": {'query': query['query']}}]
                             }
-                        })
+                        }
+                    })
 
-        for rank, hit in enumerate(res['hits']['hits']):
-            yield TrecResult(query['document_id'], '0', hit['_id'], rank + 1,
-                             hit['_score'], 'baseline')
+    for rank, hit in enumerate(res['hits']['hits']):
+        results.append(TrecResult(query['document_id'], '0', hit['_id'], rank + 1,
+                                  hit['_score'], 'baseline'))
+    return results
 
 
 def format_trec_results(results: List[TrecResult]):
@@ -92,17 +100,23 @@ if __name__ == '__main__':
 
     Q = json.load(args.queries)
 
+    p = Pool()
+    baseline_partial = partial(search_baseline,
+                               elastic_url=args.elastic_url,
+                               index=args.elastic_index)
     args.baseline_output.write(
         format_trec_results(
-            search_baseline(
-                Q,
-                Elasticsearch([args.elastic_url]),
-                args.elastic_index)))
+            [item for sublist in p.map(baseline_partial, Q) for item in sublist]))
+    p.close()
+    p.join()
 
-    args.ltr_output.write(
+    p = Pool()
+    ltr_partial = partial(search_ltr,
+                          elastic_url=args.elastic_url,
+                          index=args.elastic_index,
+                          model=args.model)
+    args.baseline_output.write(
         format_trec_results(
-            search_ltr(
-                Q,
-                Elasticsearch([args.elastic_url]),
-                args.elastic_index,
-                args.model)))
+            [item for sublist in p.map(ltr_partial, Q) for item in sublist]))
+    p.close()
+    p.join()
