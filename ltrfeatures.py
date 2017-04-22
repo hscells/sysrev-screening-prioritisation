@@ -208,7 +208,11 @@ def generate_features(query: OrderedDict, mapping: OrderedDict,
                                             terms)
                         weight = obj.calc()
                         if weight > 0:
-                            features[obj.feature_manager_id()] += weight
+                            feature_id = obj.feature_manager_id()
+                            if feature_id not in features:
+                                features[feature_id] = weight
+                            else:
+                                features[feature_id] += weight
 
         if len(features) > 0:
             output_pointer.write(
