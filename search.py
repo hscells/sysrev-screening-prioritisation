@@ -8,6 +8,8 @@ import argparse
 import json
 import sys
 from functools import partial
+from pprint import pprint
+
 from ltrfeatures import template_query, load_features
 
 from collections import namedtuple
@@ -51,7 +53,7 @@ def search_ltr(query: dict, elastic_url: str,
     """
     es = Elasticsearch([elastic_url])
     results = []
-    features = [template_query(query, x) for x in load_features().values()]
+    features = [template_query(query['query'], x) for x in load_features().values()]
     rescore_query = \
         {
             'query': query['query'],
@@ -70,7 +72,7 @@ def search_ltr(query: dict, elastic_url: str,
         }
 
     res = es.search(index=index, doc_type='doc',
-                    size=100, request_timeout=100,
+                    size=10000, request_timeout=100,
                     body=rescore_query)
 
     for rank, hit in enumerate(res['hits']['hits']):
@@ -120,13 +122,15 @@ if __name__ == '__main__':
     p.close()
     p.join()
 
-    p = Pool()
-    ltr_partial = partial(search_ltr,
-                          elastic_url=args.elastic_url,
-                          index=args.elastic_index,
-                          model=args.model)
-    args.ltr_output.write(
-        format_trec_results(
-            [item for sublist in p.map(ltr_partial, Q) for item in sublist]))
-    p.close()
-    p.join()
+    for q in Q:
+        search_ltr(q, args.elastic_url, args.elastic_index, args.model)
+    # p = Pool()
+    # ltr_partial = partial(search_ltr,
+    #                       elastic_url=args.elastic_url,
+    #                       index=args.elastic_index,
+    #                       model=args.model)
+    # args.ltr_output.write(
+    #     format_trec_results(
+    #         [item for sublist in p.map(ltr_partial, Q) for item in sublist]))
+    # p.close()
+    # p.join()

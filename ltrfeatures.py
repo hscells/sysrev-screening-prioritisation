@@ -89,7 +89,7 @@ def generate_features(query: OrderedDict, mapping: OrderedDict,
 
         features = OrderedDict()
         res = es.search(index=elastic_index, doc_type=elastic_doc,
-                        body=template_query(es_query, feature_query),
+                        body={'query': template_query(es_query, feature_query)},
                         size=10000, request_timeout=10000)
         for rank, hit in enumerate(res['hits']['hits']):
             pmid = hit['_id']
