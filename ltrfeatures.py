@@ -46,12 +46,14 @@ from functools import partial
 from string import Template
 
 import os
+import sys
 from collections import namedtuple, OrderedDict
 from elasticsearch import Elasticsearch
 from multiprocessing import Pool
 from typing import List, Dict
 
 RankLibRow = namedtuple('RankLibRow', ['target', 'qid', 'features', 'info'])
+output_pointer = 0
 
 
 def template_query(query: dict, template: str) -> dict:
@@ -66,7 +68,7 @@ def template_query(query: dict, template: str) -> dict:
 
 def generate_features(query: OrderedDict, mapping: OrderedDict,
                       elastic_url: str, elastic_index: str, elastic_doc: str,
-                      feature_classes: Dict[int, str]) -> None:
+                      feature_classes: Dict[int, str]) -> List[RankLibRow]:
     """
 
     :return: 
@@ -88,19 +90,18 @@ def generate_features(query: OrderedDict, mapping: OrderedDict,
         features = OrderedDict()
         res = es.search(index=elastic_index, doc_type=elastic_doc,
                         body=template_query(es_query, feature_query),
-                        size=1000, request_timeout=10000)
+                        size=10000, request_timeout=10000)
         for rank, hit in enumerate(res['hits']['hits']):
             pmid = hit['_id']
             if pmid in judged_documents:
                 features[feature_id] = hit['_score']
-                if pmid not in docs:
-                    docs[pmid] = features
+                docs[pmid] = features
 
+    ranklib = []
     for pmid, features in docs.items():
         relevance = judged_documents[pmid]
-        output_pointer.write(
-            format_ranklib_row(
-                RankLibRow(target=relevance, qid=query_id, features=features, info=pmid)))
+        ranklib.append(RankLibRow(target=relevance, qid=query_id, features=features, info=pmid))
+    return ranklib
 
 
 def format_ranklib_row(row: RankLibRow) -> str:
@@ -145,8 +146,8 @@ if __name__ == '__main__':
     # download this from medline2elastic at /api/queries/elastic/pico
     argparser.add_argument('-q', '--queries', help='The queries file', required=True,
                            type=argparse.FileType('r'))
-    argparser.add_argument('-o', '--output', help='The file to output to', type=str,
-                           required=True)
+    argparser.add_argument('-o', '--output', help='The file to output to',
+                           type=argparse.FileType('w'), default=sys.stdout)
     argparser.add_argument('--elastic-url', help='Address of the elasticsearch instance',
                            default='http://localhost:9200', type=str)
     argparser.add_argument('--elastic-index', help='Index to train using',
@@ -158,9 +159,6 @@ if __name__ == '__main__':
 
     custom_features = load_features()
 
-    output_pointer = open(args.output, 'w').close()
-    output_pointer = open(args.output, 'w+')
-
     input_queries = json.load(args.queries)
 
     generate_features_partial = partial(generate_features,
@@ -171,8 +169,10 @@ if __name__ == '__main__':
                                         feature_classes=custom_features)
 
     p = Pool()
-    annotated_data = p.map(generate_features_partial, input_queries)
+    extracted_features = p.map(generate_features_partial, input_queries)
     p.close()
     p.join()
 
-    output_pointer.close()
+    args.output.write(
+        format_ranklib(
+            [item for sublist in extracted_features for item in sublist]))
