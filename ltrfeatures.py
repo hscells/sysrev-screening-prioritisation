@@ -133,7 +133,7 @@ def load_features() -> Dict[int, str]:
         for file in files:
             path = os.path.join(root, file)
             with open(path) as f:
-                features[len(features)] = f.read()
+                features[len(features) + 1] = f.read()
     return features
 
 
