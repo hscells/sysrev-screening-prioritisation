@@ -8,6 +8,7 @@ import argparse
 import json
 import sys
 from functools import partial
+from ltrfeatures import template_query, load_features
 
 from collections import namedtuple
 from elasticsearch import Elasticsearch
@@ -50,6 +51,7 @@ def search_ltr(query: dict, elastic_url: str,
     """
     es = Elasticsearch([elastic_url])
     results = []
+    features = [template_query(query, x) for x in load_features().values()]
     rescore_query = \
         {
             'query': query['query'],
@@ -60,16 +62,13 @@ def search_ltr(query: dict, elastic_url: str,
                             'model': {
                                 'stored': model
                             },
-                            'features': [{
-                                'constant_score': {
-                                    'filter': query['query']
-                                }
-                            }]
+                            'features': features
                         }
                     }
                 }
             }
         }
+    
     res = es.search(index=index, doc_type='doc',
                     size=100, request_timeout=100,
                     body=rescore_query)
