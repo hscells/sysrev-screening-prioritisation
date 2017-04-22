@@ -1,14 +1,18 @@
 import numpy as np
-from typing import List
 
 from features.feature import AbstractFeature
 
 
 class IDFSum(AbstractFeature):
-    def idf_weights(self) -> List[float]:
+    def idf_weights(self) -> np.ndarray:
+        weights = []
         for term in self.query_vocabulary:
             if term in self.term_statistics:
-                yield self.field_statistics['doc_count'] / self.term_statistics[term]['ttf']
+                weights.append(
+                    self.field_statistics['doc_count'] / self.term_statistics[term]['ttf'])
+        if len(weights) == 0:
+            weights = [0.0]
+        return np.array(weights)
 
     def calc(self) -> float:
         return sum(self.idf_weights())
@@ -27,7 +31,7 @@ class IDFStd(IDFSum):
 
 class IDFMax(IDFSum):
     def calc(self) -> float:
-        return max(self.idf_weights())
+        return np.max(self.idf_weights())
 
     def feature_manager_id(self):
         return 4
