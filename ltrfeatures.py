@@ -86,16 +86,15 @@ def generate_features(query: OrderedDict, mapping: OrderedDict,
     docs = {}
 
     for feature_id, feature_query in feature_classes.items():
-
-        features = OrderedDict()
         res = es.search(index=elastic_index, doc_type=elastic_doc,
                         body={'query': template_query(es_query, feature_query)},
                         size=10000, request_timeout=10000)
         for rank, hit in enumerate(res['hits']['hits']):
             pmid = hit['_id']
             if pmid in judged_documents:
-                features[feature_id] = hit['_score']
-                docs[pmid] = features
+                if pmid not in docs:
+                    docs[pmid] = OrderedDict()
+                docs[pmid][feature_id] = hit['_score']
 
     ranklib = []
     for pmid, features in docs.items():

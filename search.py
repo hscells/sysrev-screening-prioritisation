@@ -8,14 +8,13 @@ import argparse
 import json
 import sys
 from functools import partial
-from pprint import pprint
-
-from ltrfeatures import template_query, load_features
 
 from collections import namedtuple
 from elasticsearch import Elasticsearch
 from multiprocessing import Pool
 from typing import List
+
+from ltrfeatures import template_query, load_features
 
 TrecResult = namedtuple('TrecResult',
                         ['query_id', 'q0', 'document_id', 'rank', 'score', 'label'])
@@ -122,15 +121,13 @@ if __name__ == '__main__':
     p.close()
     p.join()
 
-    for q in Q:
-        search_ltr(q, args.elastic_url, args.elastic_index, args.model)
-    # p = Pool()
-    # ltr_partial = partial(search_ltr,
-    #                       elastic_url=args.elastic_url,
-    #                       index=args.elastic_index,
-    #                       model=args.model)
-    # args.ltr_output.write(
-    #     format_trec_results(
-    #         [item for sublist in p.map(ltr_partial, Q) for item in sublist]))
-    # p.close()
-    # p.join()
+    p = Pool()
+    ltr_partial = partial(search_ltr,
+                          elastic_url=args.elastic_url,
+                          index=args.elastic_index,
+                          model=args.model)
+    args.ltr_output.write(
+        format_trec_results(
+            [item for sublist in p.map(ltr_partial, Q) for item in sublist]))
+    p.close()
+    p.join()
