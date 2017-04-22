@@ -53,7 +53,7 @@ from elasticsearch import Elasticsearch
 from multiprocessing import Pool
 from typing import List, Dict
 
-from features.feature import AbstractFeature, AbstractTermFeature, AbstractQueryFeature
+from features.feature import AbstractFeature
 
 RankLibRow = namedtuple('RankLibRow', ['target', 'qid', 'features', 'info'])
 FeatureIdentifier = namedtuple('FeatureIdentifier', ['weight', 'field', 'term'])
@@ -74,14 +74,6 @@ feature_query = {
         }
     }
 }
-
-
-def term_features(c) -> bool:
-    return issubclass(c[1], AbstractTermFeature)
-
-
-def query_features(c) -> bool:
-    return issubclass(c[1], AbstractQueryFeature)
 
 
 def populate_feature_query(document_ids: List[str], query: dict) -> dict:
@@ -155,37 +147,6 @@ def term_feature_identifier(weight: str, field: str, term: str) -> str:
     return '{}{}{}'.format(weight, field.upper().replace('.', ''), ''.join(term))
 
 
-def map_query_vocabulary_to_features(vocabulary: OrderedDict,
-                                     feature_classes: Dict[str, AbstractFeature],
-                                     start_index=2) -> OrderedDict:
-    """
-    Given a query vocabulary (the terms and phrases in a boolean query) and some features,
-    and depending on the type of feature, create a mapping to the features in the RankLib
-    training data.
-    :param vocabulary: 
-    :param feature_classes: 
-    :param start_index: 
-    :return: 
-    """
-    inverted_vocabulary = OrderedDict()
-    for field, terms in vocabulary.items():
-        for term in terms:
-            # for term features, we want to encode the term and field as well as the name of the
-            # feature.
-            for feature_name, feature_class in filter(term_features, feature_classes.items()):
-                inverted_vocabulary[
-                    term_feature_identifier(feature_name, field, term)] = start_index
-                start_index += 1
-
-    # For query features, we don't care about the terms so we can just store the name of the
-    # feature.
-    for feature_name, feature_class in filter(query_features, feature_classes.items()):
-        inverted_vocabulary[feature_name] = start_index
-        start_index += 1
-
-    return inverted_vocabulary
-
-
 def map_identifier_to_feature(weight: str, field: str, term: str,
                               vocabulary_mapping: dict) -> int:
     """
@@ -199,7 +160,7 @@ def map_identifier_to_feature(weight: str, field: str, term: str,
     return vocabulary_mapping[term_feature_identifier(weight, field, term)]
 
 
-def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: OrderedDict,
+def generate_features(query: OrderedDict, mapping: OrderedDict,
                       elastic_url: str, elastic_index: str, elastic_doc: str,
                       feature_classes: Dict[str, AbstractFeature]) -> None:
     """
@@ -218,21 +179,9 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: Orde
     query_id = query['query_id']
     es_query = query['query']
     judged_documents = mapping[document_id]
-    judged_document_ids = list(judged_documents.keys())
-
-    # get a rank score (for a feature)
-    res = es.search(index=elastic_index,
-                    body=populate_feature_query(judged_document_ids, es_query))
 
     for pmid, relevance in judged_documents.items():
         features = OrderedDict()
-
-        # populate the score feature
-        for retrieved_document in res['hits']['hits']:
-            if retrieved_document['_id'] == pmid:
-                score = retrieved_document['_score']
-                if score > 0:
-                    features[1] = score
 
         # Calculate the term features
         # we need a subset of the vocabulary to work on
@@ -248,21 +197,17 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: Orde
                                             'term_statistics': True,
                                             'field_statistics': True
                                         })
-            for term in terms:
-                if statistics['found']:
-                    if field in statistics['term_vectors']:
-                        for feature_name, feature_class in filter(term_features,
-                                                                  feature_classes.items()):
-                            f = map_identifier_to_feature(feature_name, field, term, fv_mapping)
-                            weight = feature_class(statistics, elastic_doc, field, term).calc()
-                            if weight > 0:
-                                features[f] = weight
-
-        # Calculate the query features
-        for feature_name, feature_class in filter(query_features, feature_classes.items()):
-            weight = feature_class(query).calc()
-            if weight > 0:
-                features[feature_name] = weight
+            if statistics['found']:
+                if field in statistics['term_vectors']:
+                    for feature_name, feature_class in feature_classes:
+                        weight = feature_class(statistics,
+                                               elastic_doc,
+                                               field,
+                                               terms,
+                                               query,
+                                               terms).calc()
+                        if weight > 0:
+                            features[feature_name] += weight
 
         if len(features) > 0:
             output_pointer.write(
@@ -301,7 +246,7 @@ def load_features() -> Dict[str, AbstractFeature]:
     # or abstract class names.
     package_path = 'features'
     abstract_module = 'feature'
-    abstract_classes = ['AbstractFeature', 'AbstractTermFeature', 'AbstractQueryFeature']
+    abstract_classes = ['AbstractFeature']
 
     # get a list of the modules in the feature package, except the abstract feature class
     feature_modules = [name for _, name, _ in pkgutil.iter_modules([package_path])]
@@ -350,16 +295,10 @@ if __name__ == '__main__':
     output_pointer = open(args.output, 'w+')
 
     input_queries = json.load(args.queries, object_pairs_hook=OrderedDict)
-    # generate a vocabulary from the queries and a mapping to features for RankLib
-    query_vocabulary = generate_query_vocabulary(input_queries)
-    feature_vocabulary_mapping = map_query_vocabulary_to_features(vocabulary=query_vocabulary,
-                                                                  feature_classes=
-                                                                  custom_features)
 
     generate_features_partial = partial(generate_features,
                                         mapping=json.load(args.mapping,
                                                           object_pairs_hook=OrderedDict),
-                                        fv_mapping=feature_vocabulary_mapping,
                                         elastic_url=args.elastic_url,
                                         elastic_index=args.elastic_index,
                                         elastic_doc=args.elastic_doc,
