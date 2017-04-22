@@ -201,13 +201,14 @@ def generate_features(query: OrderedDict, mapping: OrderedDict,
                 if field in statistics['term_vectors']:
                     for feature_name, feature_class in feature_classes.items():
                         # noinspection PyCallingNonCallable
-                        weight = feature_class(statistics,
-                                               elastic_doc,
-                                               field,
-                                               query,
-                                               terms).calc()
+                        obj = feature_class(statistics,
+                                            elastic_doc,
+                                            field,
+                                            query,
+                                            terms)
+                        weight = obj.calc()
                         if weight > 0:
-                            features[feature_name] += weight
+                            features[obj.feature_manager_id()] += weight
 
         if len(features) > 0:
             output_pointer.write(
