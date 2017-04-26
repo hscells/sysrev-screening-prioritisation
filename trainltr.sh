@@ -10,7 +10,7 @@ queries_json_file=./elastic-pico-queries.json
 output_dest=./results/
 
 # don't touch these variable
-elastic_address=${elasticsearch_host}:${elasticsearch_port} # calculated elasticsearch url
+elasticsearch_address=${elasticsearch_host}:${elasticsearch_port} # calculated elasticsearch url
 timestamp=$(date | sed 's/ //g' | cut -c 1-14) # unique name for the file
 trec_baseline=${output_dest}trec_baseline_${timestamp}.txt
 trec_ltr=${output_dest}trec_ltr_${timestamp}.txt
@@ -36,7 +36,8 @@ fi
 log 'Extracting features...'
 
 # Create training data by using elasticsearch to generate features for RankLib
-python3 ./ltrfeatures.py --mapping ./pmid-mapping.json --queries ${queries_json_file} --output training.txt
+python3 ./ltrfeatures.py --mapping ./pmid-mapping.json --queries ${queries_json_file} --output training.txt \
+                         --elastic-url http://${elasticsearch_address} --elastic-index ${elasticsearch_index}
 
 log 'Training a model......'
 
@@ -47,13 +48,13 @@ java -jar ${ranklib_path} -train training.txt -ranker 1 -save ${model_name}.txt 
 log 'Uploading model and searching...'
 
 # Now we can upload the model to elasticsearch
-python3 ./uploadscript.py --input ${model_name}.txt --elastic-url http://${elastic_address} -v
+python3 ./uploadscript.py --input ${model_name}.txt --elastic-url http://${elasticsearch_address} -v
 
 python3 ./search.py \
         -q ${queries_json_file} \
         --baseline-output ${trec_baseline} \
         --ltr-output ${trec_ltr} \
-        --elastic-url http://${elastic_address} \
+        --elastic-url http://${elasticsearch_address} \
         --elastic-index ${elasticsearch_index}
 
 sort -o ${trec_baseline} ${trec_baseline}

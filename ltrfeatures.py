@@ -154,7 +154,7 @@ def map_identifier_to_feature(weight: str, field: str, term: str,
 
 
 def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: dict,
-                      elastic_url: str, elastic_index: str, elastic_doc: str, fields: List[str],
+                      elastic_url: str, elastic_index: str, elastic_doc: str,
                       feature_classes: Dict[str, AbstractFeature]) -> List[RankLibRow]:
     """
     Generate features using elasticsearch. This function uses the features that have been loaded
@@ -173,6 +173,7 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: dict
     es_query = query['query']
     judged_documents = mapping[document_id]
     query_terms = generate_query_vocabulary([OrderedDict([('query', es_query)])])
+    fields = list(query_terms.keys())
     ranklib = []
 
     for pmid, relevance in judged_documents.items():
@@ -192,10 +193,11 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: dict
             # pprint(statistics)
             if statistics['found']:
                 for field in fields:
-                    # noinspection PyCallingNonCallable
-                    f = feature_class(statistics=statistics, field=field,
-                                      query=es_query, query_vocabulary=query_terms).calc()
-                    features[fv_mapping[feature_identifier(pmid, field, feature_name)]] = f
+                    if field in query_terms:
+                        # noinspection PyCallingNonCallable
+                        f = feature_class(statistics=statistics, field=field,
+                                          query=es_query, query_vocabulary=query_terms).calc()
+                        features[fv_mapping[feature_identifier(pmid, field, feature_name)]] = f
 
         relevance = judged_documents[pmid]
         ranklib.append(
@@ -291,7 +293,6 @@ if __name__ == '__main__':
                                         elastic_url=args.elastic_url,
                                         elastic_index=args.elastic_index,
                                         elastic_doc=args.elastic_doc,
-                                        fields=args.fields,
                                         feature_classes=load_features())
 
     p = Pool()
