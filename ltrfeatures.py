@@ -119,18 +119,24 @@ def feature_identifier(pmid: str, field: str, feature: str) -> str:
 
 def feature_vector_mapping(mapping: dict,
                            features: Dict[str, AbstractFeature],
-                           fields: List[str]) -> OrderedDict:
+                           queries: List[OrderedDict]) -> OrderedDict:
     """
     Given a query vocabulary (the terms and phrases in a boolean query) and some features,
     and depending on the type of feature, create a mapping to the features in the RankLib
     training data.
     :param mapping: 
     :param features: 
-    :param fields: 
+    :param queries: 
     :return: 
     """
     inverted_vocabulary = OrderedDict()
     index = 1
+    vocab = generate_query_vocabulary(queries)
+    fields = set()
+
+    for k in vocab.keys():
+        fields.add(k)
+
     for _, documents in mapping.items():
         for pmid in documents.keys():
             for field in fields:
@@ -278,26 +284,26 @@ if __name__ == '__main__':
     argparser.add_argument('--elastic-doc', help='Type of the elasticsearch document',
                            default='doc', type=str)
     argparser.add_argument('--fields', help='The fields to use',
-                           default=['title', 'text', 'population', 'intervention', 'outcomes'])
+                           default=['title', 'text', 'population', 'intervention', 'outcomes', 'authors', 'mesh_headings', 'pubdate'])
 
     args = argparser.parse_args()
 
     M = json.load(args.mapping, object_pairs_hook=OrderedDict)
+    Q = json.load(args.queries, object_pairs_hook=OrderedDict)
 
     generate_features_partial = partial(generate_features,
                                         mapping=M,
                                         fv_mapping=feature_vector_mapping(
                                             M,
                                             load_features(),
-                                            args.fields),
+                                            Q),
                                         elastic_url=args.elastic_url,
                                         elastic_index=args.elastic_index,
                                         elastic_doc=args.elastic_doc,
                                         feature_classes=load_features())
 
     p = Pool()
-    extracted_features = p.map(generate_features_partial,
-                               json.load(args.queries, object_pairs_hook=OrderedDict))
+    extracted_features = p.map(generate_features_partial, Q)
     p.close()
     p.join()
 
