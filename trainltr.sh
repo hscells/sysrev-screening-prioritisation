@@ -55,7 +55,8 @@ python3 ./search.py \
         --baseline-output ${trec_baseline} \
         --ltr-output ${trec_ltr} \
         --elastic-url http://${elasticsearch_address} \
-        --elastic-index ${elasticsearch_index}
+        --elastic-index ${elasticsearch_index} \
+        --training training.txt
 
 sort -o ${trec_baseline} ${trec_baseline}
 sort -o ${trec_ltr} ${trec_ltr}

@@ -32,7 +32,7 @@ def search_baseline(query: dict, elastic_url: Elasticsearch,
     es = Elasticsearch([elastic_url])
     results = []
     res = es.search(index=index, doc_type='doc', body={'query': query['query']},
-                    size=100, request_timeout=100)
+                    size=10000, request_timeout=100)
 
     for rank, hit in enumerate(res['hits']['hits']):
         results.append(TrecResult(query['document_id'], '0', hit['_id'], rank + 1,

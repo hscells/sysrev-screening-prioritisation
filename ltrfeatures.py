@@ -110,14 +110,14 @@ def generate_query_vocabulary(queries: List[OrderedDict]) -> OrderedDict:
     for k, v in vocabulary.items():
         vocabulary[k] = sorted(v)
 
-    return vocabulary
+    return OrderedDict(sorted(vocabulary.items()), key=lambda x: x[0])
 
 
 def feature_identifier(pmid: str, field: str, feature: str) -> str:
     return '{}{}{}'.format(pmid, field.upper().replace('.', ''), feature)
 
 
-def feature_vector_mapping(mapping: dict,
+def feature_vector_mapping(mapping: OrderedDict,
                            features: Dict[str, AbstractFeature],
                            queries: List[OrderedDict]) -> OrderedDict:
     """
@@ -134,13 +134,13 @@ def feature_vector_mapping(mapping: dict,
     vocab = generate_query_vocabulary(queries)
     fields = set()
 
-    for k in vocab.keys():
+    for k in sorted(vocab.keys()):
         fields.add(k)
 
     for _, documents in mapping.items():
-        for pmid in documents.keys():
-            for field in fields:
-                for feature_name in features:
+        for pmid in sorted(documents.keys()):
+            for field in sorted(fields):
+                for feature_name in sorted(features):
                     inverted_vocabulary[feature_identifier(pmid, field, feature_name)] = index
                     index += 1
     return inverted_vocabulary
@@ -188,7 +188,7 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: dict
             features[k + 1] = 0
         for feature_name, feature_class in feature_classes.items():
             statistics = es.termvectors(index=elastic_index, doc_type=elastic_doc, id=pmid,
-                                        fields=fields,
+                                        fields=fields, request_timeout=10000,
                                         body={
                                             'offsets': True,
                                             'payloads': True,
@@ -196,10 +196,9 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: dict
                                             'term_statistics': True,
                                             'field_statistics': True
                                         })
-            # pprint(statistics)
             if statistics['found']:
                 for field in fields:
-                    if field in query_terms:
+                    if field in statistics['term_vectors']:
                         # noinspection PyCallingNonCallable
                         f = feature_class(statistics=statistics, field=field,
                                           query=es_query, query_vocabulary=query_terms).calc()
@@ -207,7 +206,8 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: dict
 
         relevance = judged_documents[pmid]
         ranklib.append(
-            RankLibRow(target=relevance, qid=query_id, features=features, info=pmid))
+            RankLibRow(target=relevance, qid=query_id, info=pmid,
+                       features=OrderedDict(sorted(features.items(), key=lambda x: x[0]))))
 
     return ranklib
 
@@ -232,7 +232,7 @@ def format_ranklib(rows: List[RankLibRow]) -> str:
     return ''.join([format_ranklib_row(row) for row in rows])
 
 
-def load_features() -> Dict[str, AbstractFeature]:
+def load_features() -> OrderedDict:
     """
     Load the features from the `features` module at run time. This allows us to load features
     in a general way and separate from this code. In this way, we abstract the feature 
@@ -263,7 +263,12 @@ def load_features() -> Dict[str, AbstractFeature]:
     # now remove the abstract class from the list of classes so there are no errors
     classes = dict(classes)
     [classes.pop(abstract_class) for abstract_class in abstract_classes]
-    return classes
+
+    ordered_classes = OrderedDict()
+    class_names = sorted(classes.keys())
+    for n in class_names:
+        ordered_classes[n] = classes[n]
+    return ordered_classes
 
 
 if __name__ == '__main__':
@@ -283,20 +288,15 @@ if __name__ == '__main__':
                            default='med', type=str)
     argparser.add_argument('--elastic-doc', help='Type of the elasticsearch document',
                            default='doc', type=str)
-    argparser.add_argument('--fields', help='The fields to use',
-                           default=['title', 'text', 'population', 'intervention', 'outcomes', 'authors', 'mesh_headings', 'pubdate'])
-
     args = argparser.parse_args()
 
     M = json.load(args.mapping, object_pairs_hook=OrderedDict)
     Q = json.load(args.queries, object_pairs_hook=OrderedDict)
+    FV = feature_vector_mapping(M, load_features(), Q)
 
     generate_features_partial = partial(generate_features,
                                         mapping=M,
-                                        fv_mapping=feature_vector_mapping(
-                                            M,
-                                            load_features(),
-                                            Q),
+                                        fv_mapping=FV,
                                         elastic_url=args.elastic_url,
                                         elastic_index=args.elastic_index,
                                         elastic_doc=args.elastic_doc,
@@ -306,6 +306,10 @@ if __name__ == '__main__':
     extracted_features = p.map(generate_features_partial, Q)
     p.close()
     p.join()
+    # extracted_features = map(generate_features_partial, Q)
+    # extracted_features = []
+    # for q in Q:
+    #     extracted_features.append(generate_features_partial(q))
 
     args.output.write(
         format_ranklib(
