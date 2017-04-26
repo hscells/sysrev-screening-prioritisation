@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # These variables are placed at the top of this file for convenience for you to edit
-ranklib_path=./ranklib/build/libs/ranklib.jar # Path to RankLib
+ranklib_path=./RankLib-2.8.jar # Path to RankLib
 model_name=model # Model name exported from RankLib _and_ used in elasticsearch
 elasticsearch_host=localhost
 elasticsearch_port=9200
@@ -42,7 +42,7 @@ log 'Training a model......'
 
 # Train a model
 # https://sourceforge.net/p/lemur/wiki/RankLib%20How%20to%20use/
-java -jar ${ranklib_path} -train training.txt -ranker 6 -save ${model_name}.txt -gmax 1 -metric2t NDCG@100 -tvs 0.2
+java -jar ${ranklib_path} -train training.txt -ranker 1 -save ${model_name}.txt -gmax 1 -metric2t NDCG@100 -tvs 0.2
 
 log 'Uploading model and searching...'
 

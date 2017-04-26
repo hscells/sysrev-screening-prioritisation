@@ -1,5 +1,0 @@
-{
-  "constant_score": {
-    "query": $query
-  }
-}

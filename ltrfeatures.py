@@ -41,36 +41,126 @@ Apr 2017
 """
 
 import argparse
+import importlib
+import inspect
 import json
-from functools import partial
-from string import Template
-
-import os
+import pkgutil
 import sys
+from functools import partial
+
 from collections import namedtuple, OrderedDict
 from elasticsearch import Elasticsearch
 from multiprocessing import Pool
 from typing import List, Dict
 
+from features.feature import AbstractFeature
+
 RankLibRow = namedtuple('RankLibRow', ['target', 'qid', 'features', 'info'])
 output_pointer = 0
 
 
-def template_query(query: dict, template: str) -> dict:
+def generate_query_vocabulary(queries: List[OrderedDict]) -> OrderedDict:
     """
     
-    :param query: 
-    :param template: 
+    :param queries: 
     :return: 
     """
-    return json.loads(Template(template).substitute(query=json.dumps(query)))
+
+    # we store the vocabulary outside of the tree traversal for convenience
+    vocabulary = OrderedDict()
+
+    def recurse(node: Dict) -> None:
+        """
+        Traverse the query tree, adding terms and the related fields to the vocabulary as we go.
+        :param node: Pointer to the node in the tree to continue to recurse down.
+        """
+        # keep diving if it's a list
+        if type(node) is list:
+            for item in node:
+                recurse(item)
+        # otherwise it might be a match
+        elif type(node) is dict or type(node) is OrderedDict:
+            # when we find a terminal leaf, add it to the vocabulary
+            for key in node.keys():
+                if key == 'match' or key == 'match_phrase':
+                    # this hack of a line just visits the node at the next depth, it's like this
+                    # because of the way elasticsearch represents match and match_phrase queries
+                    terminals = list(node[list(node.keys())[0]].items())[0]
+                    field, term = terminals[0].replace('.stemmed', ''), terminals[1]
+                    if field not in vocabulary:
+                        vocabulary[field] = set()
+                    vocabulary[field].add(term)
+                elif key == 'multi_match':
+                    fields, term = node[key]['fields'], node[key]['query']
+                    for field in fields:
+                        field = field.replace('.stemmed', '')
+                        if field not in vocabulary:
+                            vocabulary[field] = set()
+                        vocabulary[field].add(term)
+                # if the node wasn't terminal, dive deeper
+                else:
+                    recurse(node[key])
+        else:
+            return
+
+    # traverse down the query tree to find the terms and matching fields
+    for query in queries:
+        recurse(query['query'])
+
+    for k, v in vocabulary.items():
+        vocabulary[k] = sorted(v)
+
+    return vocabulary
 
 
-def generate_features(query: OrderedDict, mapping: OrderedDict,
-                      elastic_url: str, elastic_index: str, elastic_doc: str,
-                      feature_classes: Dict[int, str]) -> List[RankLibRow]:
+def feature_identifier(pmid: str, field: str, feature: str) -> str:
+    return '{}{}{}'.format(pmid, field.upper().replace('.', ''), feature)
+
+
+def feature_vector_mapping(mapping: dict,
+                           features: Dict[str, AbstractFeature],
+                           fields: List[str]) -> OrderedDict:
     """
+    Given a query vocabulary (the terms and phrases in a boolean query) and some features,
+    and depending on the type of feature, create a mapping to the features in the RankLib
+    training data.
+    :param mapping: 
+    :param features: 
+    :param fields: 
+    :return: 
+    """
+    inverted_vocabulary = OrderedDict()
+    index = 1
+    for _, documents in mapping.items():
+        for pmid in documents.keys():
+            for field in fields:
+                for feature_name in features:
+                    inverted_vocabulary[feature_identifier(pmid, field, feature_name)] = index
+                    index += 1
+    return inverted_vocabulary
 
+
+def map_identifier_to_feature(weight: str, field: str, term: str,
+                              vocabulary_mapping: dict) -> int:
+    """
+    Using the mapping, map the weight, field and term into a feature id
+    :param weight: 
+    :param field: 
+    :param term: 
+    :param vocabulary_mapping: 
+    :return: 
+    """
+    return vocabulary_mapping[feature_identifier(weight, field, term)]
+
+
+def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: dict,
+                      elastic_url: str, elastic_index: str, elastic_doc: str, fields: List[str],
+                      feature_classes: Dict[str, AbstractFeature]) -> List[RankLibRow]:
+    """
+    Generate features using elasticsearch. This function uses the features that have been loaded
+    and runs the calc() method on each of the classes. It writes one line of a RankLib training
+    file to the disk when it is done. This function is thread safe, it should be run in 
+    parallel. Note, that for this to happen, you must have an `output_pointer` variable defined.
     :return: 
     """
     # create the elasticsearch object
@@ -82,24 +172,35 @@ def generate_features(query: OrderedDict, mapping: OrderedDict,
     query_id = query['query_id']
     es_query = query['query']
     judged_documents = mapping[document_id]
-
-    docs = {}
-
-    for feature_id, feature_query in feature_classes.items():
-        res = es.search(index=elastic_index, doc_type=elastic_doc,
-                        body={'query': template_query(es_query, feature_query)},
-                        size=10000, request_timeout=10000)
-        for rank, hit in enumerate(res['hits']['hits']):
-            pmid = hit['_id']
-            if pmid in judged_documents:
-                if pmid not in docs:
-                    docs[pmid] = OrderedDict()
-                docs[pmid][feature_id] = hit['_score']
-
+    query_terms = generate_query_vocabulary([OrderedDict([('query', es_query)])])
     ranklib = []
-    for pmid, features in docs.items():
+
+    for pmid, relevance in judged_documents.items():
+        features = {}
+        for k in range(len(fv_mapping)):
+            features[k + 1] = 0
+        for feature_name, feature_class in feature_classes.items():
+            statistics = es.termvectors(index=elastic_index, doc_type=elastic_doc, id=pmid,
+                                        fields=fields,
+                                        body={
+                                            'offsets': True,
+                                            'payloads': True,
+                                            'positions': True,
+                                            'term_statistics': True,
+                                            'field_statistics': True
+                                        })
+            # pprint(statistics)
+            if statistics['found']:
+                for field in fields:
+                    # noinspection PyCallingNonCallable
+                    f = feature_class(statistics=statistics, field=field,
+                                      query=es_query, query_vocabulary=query_terms).calc()
+                    features[fv_mapping[feature_identifier(pmid, field, feature_name)]] = f
+
         relevance = judged_documents[pmid]
-        ranklib.append(RankLibRow(target=relevance, qid=query_id, features=features, info=pmid))
+        ranklib.append(
+            RankLibRow(target=relevance, qid=query_id, features=features, info=pmid))
+
     return ranklib
 
 
@@ -111,7 +212,7 @@ def format_ranklib_row(row: RankLibRow) -> str:
     """
     features = ''.join(
         ['{}:{} '.format(feature, value) for (feature, value) in row.features.items()])
-    return '{} qid:{} {}# {}\n'.format(row.target, row.qid, features, row.info)
+    return '{} qid:{} {}#{}\n'.format(row.target, row.qid, features, row.info)
 
 
 def format_ranklib(rows: List[RankLibRow]) -> str:
@@ -123,17 +224,38 @@ def format_ranklib(rows: List[RankLibRow]) -> str:
     return ''.join([format_ranklib_row(row) for row in rows])
 
 
-def load_features() -> Dict[int, str]:
+def load_features() -> Dict[str, AbstractFeature]:
     """
+    Load the features from the `features` module at run time. This allows us to load features
+    in a general way and separate from this code. In this way, we abstract the feature 
+    engineering process from the code that execute the features.
     :return: 
     """
-    features = {}
-    for root, dirs, files in os.walk('features'):
-        for file in files:
-            path = os.path.join(root, file)
-            with open(path) as f:
-                features[len(features) + 1] = f.read()
-    return features
+    # these hard-coded values should never change unless you need to rename the package, module,
+    # or abstract class names.
+    package_path = 'features'
+    abstract_module = 'feature'
+    abstract_classes = ['AbstractFeature']
+
+    # get a list of the modules in the feature package, except the abstract feature class
+    feature_modules = [name for _, name, _ in pkgutil.iter_modules([package_path])]
+    feature_modules.remove(abstract_module)
+
+    # import the modules and keep a reference to them
+    modules = [importlib.import_module('{}.{}'.format(package_path, f)) for f in
+               feature_modules]
+
+    # now we can go and find the classes in the modules
+    classes = set()
+    [classes.add((x, None)) for x in abstract_classes]
+    for feature_module in modules:
+        for member in inspect.getmembers(feature_module, inspect.isclass):
+            classes.add(member)
+
+    # now remove the abstract class from the list of classes so there are no errors
+    classes = dict(classes)
+    [classes.pop(abstract_class) for abstract_class in abstract_classes]
+    return classes
 
 
 if __name__ == '__main__':
@@ -153,22 +275,28 @@ if __name__ == '__main__':
                            default='med', type=str)
     argparser.add_argument('--elastic-doc', help='Type of the elasticsearch document',
                            default='doc', type=str)
+    argparser.add_argument('--fields', help='The fields to use',
+                           default=['title', 'text', 'population', 'intervention', 'outcomes'])
 
     args = argparser.parse_args()
 
-    custom_features = load_features()
-
-    input_queries = json.load(args.queries)
+    M = json.load(args.mapping, object_pairs_hook=OrderedDict)
 
     generate_features_partial = partial(generate_features,
-                                        mapping=json.load(args.mapping),
+                                        mapping=M,
+                                        fv_mapping=feature_vector_mapping(
+                                            M,
+                                            load_features(),
+                                            args.fields),
                                         elastic_url=args.elastic_url,
                                         elastic_index=args.elastic_index,
                                         elastic_doc=args.elastic_doc,
-                                        feature_classes=custom_features)
+                                        fields=args.fields,
+                                        feature_classes=load_features())
 
     p = Pool()
-    extracted_features = p.map(generate_features_partial, input_queries)
+    extracted_features = p.map(generate_features_partial,
+                               json.load(args.queries, object_pairs_hook=OrderedDict))
     p.close()
     p.join()
 
