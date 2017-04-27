@@ -30,6 +30,23 @@ elasticsearch-plugin install file:///$(pwd)/build/distributions/ltr-query-0.1.1-
 I have included a convenience scripts called `installPlugin.sh` in this directory that will go ahead and run these 
 commands for you.
 
+
+### Elasticsearch configuration
+
+Because the queries and models we are dealing with are very large, we need to ensure elasticsearch can handle them. My
+elasticsearch.yml configuration file has these additional options:
+
+```yaml
+script.max_size_in_bytes: 10000000
+http.max_content_length: 1gb
+```
+
+I also start elasticsearch with more heap space like so:
+
+```bash
+ES_JAVA_OPTS="-Xms6g -Xmx6g" ./bin/elasticsearch
+```
+
 ## Training A Model
 
 To train a model, this project uses RankLib. This project contains a pipeline that will perform feature extraction, 
