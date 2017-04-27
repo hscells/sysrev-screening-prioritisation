@@ -25,7 +25,7 @@ class AbstractFeature(object):
         self.statistics = statistics
         self.field = field
         self.query = query
-        self.query_vocabulary = query_vocabulary[field]
+        self.query_vocabulary = query_vocabulary
 
         self.field_statistics = statistics['term_vectors'][field]['field_statistics']
         self.term_statistics = statistics['term_vectors'][field]['terms']

@@ -3,13 +3,15 @@ Harry Scells
 Apr 2017
 """
 
-from features.feature import AbstractFeature
+# TODO The AbstractFeature class needs document structure to calculate this
 
-
-class FieldLength(AbstractFeature):
-    """
-    For the given field, what is the length in characters?
-    """
-
-    def calc(self) -> float:
-        return len(self.field)
+# from features.feature import AbstractFeature
+#
+#
+# class FieldLength(AbstractFeature):
+#     """
+#     For the given field, what is the length in characters?
+#     """
+#
+#     def calc(self) -> float:
+#         return len(self.field)

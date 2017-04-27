@@ -5,10 +5,8 @@ Apr 2017
 
 import json
 import re
-from collections import OrderedDict
 
 from features.feature import AbstractFeature
-from ltrfeatures import generate_query_vocabulary
 
 
 class QueryKeywordLength(AbstractFeature):
@@ -17,8 +15,7 @@ class QueryKeywordLength(AbstractFeature):
     """
 
     def calc(self) -> float:
-        vocab = generate_query_vocabulary([OrderedDict([('query', self.query)])])
-        return len(vocab[self.field])
+        return len(self.query_vocabulary.values())
 
 
 class QueryOperatorCount(AbstractFeature):
