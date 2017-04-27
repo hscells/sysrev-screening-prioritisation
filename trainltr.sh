@@ -26,13 +26,6 @@ then
     exit 1
 fi
 
-# Get set the ranklib path, and build the jar if it does not exist
-if [ ! -f ${ranklib_path} ]; then
-    cd ./ranklib/
-    ./gradlew build
-    cd ../
-fi
-
 log 'Extracting features...'
 
 # Create training data by using elasticsearch to generate features for RankLib

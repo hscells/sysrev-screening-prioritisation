@@ -6,6 +6,7 @@ _Using learning to rank._
 
  - elasticsearch version 5.3.0
  - latest java version 1.8
+ - trec_eval
 
 The experiments use the learning to rank elasticsearch plugin from:
  
@@ -31,18 +32,22 @@ commands for you.
 
 ## Training A Model
 
-To train a model, this project uses RankLib. I have forked the main repository from 
-https://github.com/jattenberg/RankLib to let me use `gradle` as the build tool. To build ranklib to get the jar to start
-training a model, inside the ranklib folder, run:
+To train a model, this project uses RankLib. This project contains a pipeline that will perform feature extraction, 
+model training, re-ranking and evaluation. To run the pipeline, use: 
  
 ```bash
-./gradlew build
+./trainltr
 ```
 
-This will produce a binary at `ranklib/build/libs/ranklib.jar`. This is an important path in the project - but will be 
-built automatically in the pipeline.
+The top of the file contains variables that may be configured to change, for instance, elasticsearch settings.
+ 
+Additionally, the pipeline comprises the following python scripts:
 
-The pipeline extracts features and learns a model. To run the pipeline, use `./trainltr.sh`. You might need to tweak the
-parameters in it.
+ - `ltrfeatures.py`: automatically extract features and produce RankLib training data.
+ - `uploadscript.py`: facilitate the uploading of RankLib models into the ltr elasticsearch plugin
+ - `search.py`: compare the baseline similarity scores against the learn to rank similarity function
+ 
+## Features
 
-
+Features are constructed as subclasses of `AbstractFeature` in the `features` module. See the 
+[features readme](features/README.md) to explore how to extend and modify the features.

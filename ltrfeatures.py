@@ -57,12 +57,15 @@ from typing import List, Dict
 from features.feature import AbstractFeature
 
 RankLibRow = namedtuple('RankLibRow', ['target', 'qid', 'features', 'info'])
+# For memory reasons we define a global pointer to a file to output to
 OUTPUT_POINTER = io.IOBase
 
 
 def generate_query_vocabulary(queries: List[OrderedDict]) -> OrderedDict:
     """
-    
+    Given a query, extract the vocabulary (query terms). The result of this function is an 
+    OrderedDict where the keys are the fields in the query and the values are the query terms
+    inside those fields being searched on.
     :param queries: 
     :return: 
     """
@@ -126,6 +129,9 @@ def feature_vector_mapping(mapping: OrderedDict,
     Given a query vocabulary (the terms and phrases in a boolean query) and some features,
     and depending on the type of feature, create a mapping to the features in the RankLib
     training data.
+    
+    Note that the pmid variable stands for PubMed Identifier - for general purposes this can
+    be considered the document id.
     :return: 
     """
     inverted_vocabulary = OrderedDict()
@@ -135,6 +141,7 @@ def feature_vector_mapping(mapping: OrderedDict,
         documents = mapping[str(query['document_id'])]
         vocab = generate_query_vocabulary([OrderedDict([('query', query['query'])])])
         for pmid in sorted(documents.keys()):
+            # we use the fields from the document so we don't explode the feature vec too much
             res = es.search(index=elastic_index, doc_type=elastic_doc,
                             body={
                                 'query': {
@@ -156,19 +163,6 @@ def feature_vector_mapping(mapping: OrderedDict,
     return inverted_vocabulary
 
 
-def map_identifier_to_feature(weight: str, field: str, term: str,
-                              vocabulary_mapping: dict) -> int:
-    """
-    Using the mapping, map the weight, field and term into a feature id
-    :param weight: 
-    :param field: 
-    :param term: 
-    :param vocabulary_mapping: 
-    :return: 
-    """
-    return vocabulary_mapping[feature_identifier(weight, field, term)]
-
-
 def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: dict,
                       elastic_url: str, elastic_index: str, elastic_doc: str,
                       feature_classes: Dict[str, AbstractFeature]) -> None:
@@ -177,12 +171,13 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: dict
     and runs the calc() method on each of the classes. It writes one line of a RankLib training
     file to the disk when it is done. This function is thread safe, it should be run in 
     parallel. Note, that for this to happen, you must have an `output_pointer` variable defined.
+        
+    Note that the pmid variable stands for PubMed Identifier - for general purposes this can
+    be considered the document id.
     :return: 
     """
     # create the elasticsearch object
     es = Elasticsearch([elastic_url])
-
-    # the names of the weights we will use
 
     document_id = str(query['document_id'])
     query_id = query['query_id']
@@ -192,24 +187,31 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: dict
     fields = list(query_terms.keys())
     ranklib = []
 
+    # We look the the studies relevant to this document (systematic review)
     for pmid, relevance in judged_documents.items():
-        features = {}
+        # The elasticsearch term vector api is used to get collection statistics
+        statistics = es.termvectors(index=elastic_index, doc_type=elastic_doc, id=pmid,
+                                    fields=fields, request_timeout=10000,
+                                    body={
+                                        'offsets': True,
+                                        'payloads': True,
+                                        'positions': True,
+                                        'term_statistics': True,
+                                        'field_statistics': True
+                                    })
+
+        # We create an ordered dictionary to store the features
+        # RankLib likes it when the features are ordered by feature id
+        features = OrderedDict()
         for k in fv_mapping:
             features[fv_mapping[k]] = 0.0
 
+        # now we can go ahead and fill in the feature vector with values
         for feature_name, feature_class in feature_classes.items():
-            statistics = es.termvectors(index=elastic_index, doc_type=elastic_doc, id=pmid,
-                                        fields=fields, request_timeout=10000,
-                                        body={
-                                            'offsets': True,
-                                            'payloads': True,
-                                            'positions': True,
-                                            'term_statistics': True,
-                                            'field_statistics': True
-                                        })
             if statistics['found']:
                 for field in fields:
                     if field in statistics['term_vectors']:
+                        # Use some dubious python code to dynamically run features
                         # noinspection PyCallingNonCallable
                         f = feature_class(statistics=statistics, field=field,
                                           query=es_query, query_vocabulary=query_terms).calc()
@@ -218,7 +220,7 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: dict
         relevance = judged_documents[pmid]
         ranklib.append(
             RankLibRow(target=relevance, qid=query_id, info=pmid,
-                       features=OrderedDict(sorted(features.items(), key=lambda x: x[0]))))
+                       features=features))
 
     OUTPUT_POINTER.write(format_ranklib(ranklib))
 
@@ -269,7 +271,8 @@ def load_features() -> OrderedDict:
     [classes.add((x, None)) for x in abstract_classes]
     for feature_module in modules:
         for member in inspect.getmembers(feature_module, inspect.isclass):
-            classes.add(member)
+            if issubclass(member[1], AbstractFeature):
+                classes.add(member)
 
     # now remove the abstract class from the list of classes so there are no errors
     classes = dict(classes)
@@ -319,7 +322,7 @@ if __name__ == '__main__':
     p.map(generate_features_partial, Q)
     p.close()
     p.join()
-    # extracted_features = map(generate_features_partial, Q)
+    extracted_features = map(generate_features_partial, Q)
     # extracted_features = []
     # for q in Q:
     #     extracted_features.append(generate_features_partial(q))
