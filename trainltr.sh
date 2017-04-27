@@ -9,7 +9,7 @@ elasticsearch_index=med
 queries_json_file=./elastic-pico-queries.json
 output_dest=./results/
 
-# don't touch these variable
+# Don't touch these variable
 elasticsearch_address=${elasticsearch_host}:${elasticsearch_port} # calculated elasticsearch url
 timestamp=$(date | sed 's/ //g' | cut -c 1-14) # unique name for the file
 trec_baseline=${output_dest}trec_baseline_${timestamp}.txt
@@ -36,14 +36,16 @@ fi
 log 'Extracting features...'
 
 # Create training data by using elasticsearch to generate features for RankLib
-python3 ./ltrfeatures.py --mapping ./pmid-mapping.json --queries ${queries_json_file} --output training.txt \
-                         --elastic-url http://${elasticsearch_address} --elastic-index ${elasticsearch_index}
+python3 ./ltrfeatures.py --mapping ./pmid-mapping.json \
+                         --queries ${queries_json_file} \
+                         --elastic-url http://${elasticsearch_address} \
+                         --elastic-index ${elasticsearch_index} > training.txt
 
 log 'Training a model......'
 
 # Train a model
 # https://sourceforge.net/p/lemur/wiki/RankLib%20How%20to%20use/
-java -jar ${ranklib_path} -train training.txt -ranker 1 -save ${model_name}.txt -gmax 1 -metric2t NDCG@100 -tvs 0.2
+java -jar ${ranklib_path} -train training.txt -ranker 3 -save ${model_name}.txt -gmax 1 -metric2t NDCG@100 -tvs 0.2
 
 log 'Uploading model and searching...'
 

@@ -43,6 +43,7 @@ Apr 2017
 import argparse
 import importlib
 import inspect
+import io
 import json
 import pkgutil
 import sys
@@ -56,7 +57,7 @@ from typing import List, Dict
 from features.feature import AbstractFeature
 
 RankLibRow = namedtuple('RankLibRow', ['target', 'qid', 'features', 'info'])
-output_pointer = 0
+OUTPUT_POINTER = io.IOBase
 
 
 def generate_query_vocabulary(queries: List[OrderedDict]) -> OrderedDict:
@@ -119,26 +120,35 @@ def feature_identifier(pmid: str, field: str, feature: str) -> str:
 
 def feature_vector_mapping(mapping: OrderedDict,
                            features: Dict[str, AbstractFeature],
-                           queries: List[OrderedDict]) -> OrderedDict:
+                           queries: List[OrderedDict], elastic_url: str,
+                           elastic_index: str, elastic_doc: str) -> OrderedDict:
     """
     Given a query vocabulary (the terms and phrases in a boolean query) and some features,
     and depending on the type of feature, create a mapping to the features in the RankLib
     training data.
-    :param mapping: 
-    :param features: 
-    :param queries: 
     :return: 
     """
     inverted_vocabulary = OrderedDict()
     index = 1
-    vocab = generate_query_vocabulary(queries)
-    fields = set()
-
-    for k in sorted(vocab.keys()):
-        fields.add(k)
-
-    for _, documents in mapping.items():
+    es = Elasticsearch([elastic_url])
+    for query in queries:
+        documents = mapping[str(query['document_id'])]
+        vocab = generate_query_vocabulary([OrderedDict([('query', query['query'])])])
         for pmid in sorted(documents.keys()):
+            res = es.search(index=elastic_index, doc_type=elastic_doc,
+                            body={
+                                'query': {
+                                    'match': {
+                                        '_id': pmid
+                                    }
+                                }
+                            })
+            doc_fields = res['hits']['hits'][0]['_source'].keys()
+            query_fields = set()
+            for k in sorted(vocab.keys()):
+                query_fields.add(k)
+
+            fields = query_fields.intersection(doc_fields)
             for field in sorted(fields):
                 for feature_name in sorted(features):
                     inverted_vocabulary[feature_identifier(pmid, field, feature_name)] = index
@@ -161,7 +171,7 @@ def map_identifier_to_feature(weight: str, field: str, term: str,
 
 def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: dict,
                       elastic_url: str, elastic_index: str, elastic_doc: str,
-                      feature_classes: Dict[str, AbstractFeature]) -> List[RankLibRow]:
+                      feature_classes: Dict[str, AbstractFeature]) -> None:
     """
     Generate features using elasticsearch. This function uses the features that have been loaded
     and runs the calc() method on each of the classes. It writes one line of a RankLib training
@@ -184,8 +194,9 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: dict
 
     for pmid, relevance in judged_documents.items():
         features = {}
-        for k in range(len(fv_mapping)):
-            features[k + 1] = 0
+        for k in fv_mapping:
+            features[fv_mapping[k]] = 0.0
+
         for feature_name, feature_class in feature_classes.items():
             statistics = es.termvectors(index=elastic_index, doc_type=elastic_doc, id=pmid,
                                         fields=fields, request_timeout=10000,
@@ -209,7 +220,7 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: dict
             RankLibRow(target=relevance, qid=query_id, info=pmid,
                        features=OrderedDict(sorted(features.items(), key=lambda x: x[0]))))
 
-    return ranklib
+    OUTPUT_POINTER.write(format_ranklib(ranklib))
 
 
 def format_ranklib_row(row: RankLibRow) -> str:
@@ -292,8 +303,10 @@ if __name__ == '__main__':
 
     M = json.load(args.mapping, object_pairs_hook=OrderedDict)
     Q = json.load(args.queries, object_pairs_hook=OrderedDict)
-    FV = feature_vector_mapping(M, load_features(), Q)
+    FV = feature_vector_mapping(M, load_features(), Q, args.elastic_url, args.elastic_index,
+                                args.elastic_doc)
 
+    OUTPUT_POINTER = args.output
     generate_features_partial = partial(generate_features,
                                         mapping=M,
                                         fv_mapping=FV,
@@ -303,7 +316,7 @@ if __name__ == '__main__':
                                         feature_classes=load_features())
 
     p = Pool()
-    extracted_features = p.map(generate_features_partial, Q)
+    p.map(generate_features_partial, Q)
     p.close()
     p.join()
     # extracted_features = map(generate_features_partial, Q)
@@ -311,6 +324,6 @@ if __name__ == '__main__':
     # for q in Q:
     #     extracted_features.append(generate_features_partial(q))
 
-    args.output.write(
-        format_ranklib(
-            [item for sublist in extracted_features for item in sublist]))
+    # args.output.write(
+    #     format_ranklib(
+    #         [item for sublist in extracted_features for item in sublist]))

@@ -60,7 +60,11 @@ def search_ltr(query: dict, elastic_url: str, training: Dict[str, List[RankLibRo
             features.append({
                 'constant_score': {
                     'boost': weight,
-                    'filter': query['query']
+                    'filter': {
+                        'match': {
+                            '_id': row.info
+                        }
+                    }
                 }
             })
 
@@ -82,7 +86,7 @@ def search_ltr(query: dict, elastic_url: str, training: Dict[str, List[RankLibRo
         }
 
     res = es.search(index=index, doc_type='doc',
-                    size=10000, request_timeout=100,
+                    size=10000, request_timeout=10000,
                     body=rescore_query)
 
     for rank, hit in enumerate(res['hits']['hits']):
