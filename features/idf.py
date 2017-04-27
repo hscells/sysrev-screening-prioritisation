@@ -1,9 +1,17 @@
+"""
+Harry Scells
+Apr 2017
+"""
 import numpy as np
 
 from features.feature import AbstractFeature
 
 
 class IDFSum(AbstractFeature):
+    """
+    Sum of the IDF scores.
+    """
+
     def idf_weights(self) -> np.ndarray:
         weights = []
         for term in self.query_vocabulary:
@@ -17,29 +25,29 @@ class IDFSum(AbstractFeature):
     def calc(self) -> float:
         return sum(self.idf_weights())
 
-    def feature_manager_id(self) -> int:
-        return 1
-
 
 class IDFStd(IDFSum):
+    """
+    Std. dev of the IDF scores.
+    """
+
     def calc(self) -> float:
         return np.std(self.idf_weights())
 
-    def feature_manager_id(self):
-        return 2
-
 
 class IDFMax(IDFSum):
+    """
+    Max of the IDF scores.
+    """
+
     def calc(self) -> float:
         return np.max(self.idf_weights())
 
-    def feature_manager_id(self):
-        return 4
-
 
 class IDFMean(IDFSum):
+    """
+    Mean of the IDF scores.
+    """
+
     def calc(self) -> float:
         return np.mean(self.idf_weights())
-
-    def feature_manager_id(self):
-        return 5

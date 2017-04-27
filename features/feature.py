@@ -3,15 +3,14 @@ This abstract base class is here to extend with other classes in this features f
 `ltrfeatures.py` script will use this module to extract features from elasticsearch. This
 abstract class is ignored by the script.
 
-For an example, have a look a the `tf.py` script in this folder.
+For an example, have a look a the `idf.py` script in this folder.
 
 Harry Scells
 Apr 2017
 """
 
-# TODO: Automatically find the abstract classes instead of hard coding it.
 
-from typing import List
+# TODO: Automatically find the abstract classes instead of hard coding it.
 
 
 class AbstractFeature(object):
@@ -22,7 +21,7 @@ class AbstractFeature(object):
     `ltrfeatures.py` script.
     """
 
-    def __init__(self, statistics: dict, field: str, query: dict, query_vocabulary: List[str]):
+    def __init__(self, statistics: dict, field: str, query: dict, query_vocabulary: dict):
         self.statistics = statistics
         self.field = field
         self.query = query
@@ -32,7 +31,4 @@ class AbstractFeature(object):
         self.term_statistics = statistics['term_vectors'][field]['terms']
 
     def calc(self) -> float:
-        raise NotImplementedError()
-
-    def feature_manager_id(self) -> int:
         raise NotImplementedError()
