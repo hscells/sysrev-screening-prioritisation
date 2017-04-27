@@ -45,7 +45,7 @@ log 'Training a model......'
 
 # Train a model
 # https://sourceforge.net/p/lemur/wiki/RankLib%20How%20to%20use/
-java -jar ${ranklib_path} -train training.txt -ranker 3 -save ${model_name}.txt -gmax 1 -metric2t NDCG@100 -tvs 0.2
+java -jar ${ranklib_path} -train training.txt -ranker 0 -save ${model_name}.txt -gmax 1 -metric2t NDCG@100 -tvs 0.2
 
 log 'Uploading model and searching...'
 
