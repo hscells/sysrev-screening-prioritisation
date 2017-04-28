@@ -51,7 +51,7 @@ from functools import partial
 
 from collections import namedtuple, OrderedDict
 from elasticsearch import Elasticsearch
-from multiprocessing import Pool
+from multiprocessing import Pool, Lock
 from typing import List, Dict
 
 from features.feature import AbstractFeature
@@ -59,6 +59,7 @@ from features.feature import AbstractFeature
 RankLibRow = namedtuple('RankLibRow', ['target', 'qid', 'features', 'info'])
 # For memory reasons we define a global pointer to a file to output to
 OUTPUT_POINTER = io.IOBase
+LOCK = Lock()
 
 
 def generate_query_vocabulary(queries: List[OrderedDict]) -> OrderedDict:
@@ -222,7 +223,9 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: dict
             RankLibRow(target=relevance, qid=query_id, info=pmid,
                        features=features))
 
+    LOCK.acquire()
     OUTPUT_POINTER.write(format_ranklib(ranklib))
+    LOCK.release()
 
 
 def format_ranklib_row(row: RankLibRow) -> str:
@@ -308,7 +311,6 @@ if __name__ == '__main__':
     Q = json.load(args.queries, object_pairs_hook=OrderedDict)
     FV = feature_vector_mapping(M, load_features(), Q, args.elastic_url, args.elastic_index,
                                 args.elastic_doc)
-
     OUTPUT_POINTER = args.output
     generate_features_partial = partial(generate_features,
                                         mapping=M,
