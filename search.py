@@ -8,25 +8,19 @@ import argparse
 import io
 import json
 import sys
-from functools import partial
 
 from collections import namedtuple
 from elasticsearch import Elasticsearch
-from multiprocessing import Pool, Lock
 from typing import List
 
 from ltrfeatures import RankLibRow
 
 TrecResult = namedtuple('TrecResult',
                         ['query_id', 'q0', 'document_id', 'rank', 'score', 'label'])
-OUTPUT_POINTER = io.IOBase
-OUTPUT_LOCK = Lock()
-TRAINING_POINTER = io.IOBase
-TRAINING_LOCK = Lock()
 
 
 def search_baseline(query: dict, elastic_url: Elasticsearch,
-                    index: str) -> None:
+                    index: str) -> List[TrecResult]:
     """
     Simulate the query as it would normally be issued to PubMed.
     :param query: 
@@ -35,22 +29,16 @@ def search_baseline(query: dict, elastic_url: Elasticsearch,
     :return: 
     """
     es = Elasticsearch([elastic_url])
-    results = []
     res = es.search(index=index, doc_type='doc', body={'query': query['query']},
                     size=10000, request_timeout=100)
 
     for rank, hit in enumerate(res['hits']['hits']):
-        results.append(TrecResult(query['query_id'], '0', hit['_id'], rank + 1,
-                                  hit['_score'], 'baseline'))
-    OUTPUT_LOCK.acquire()
-    try:
-        OUTPUT_POINTER.write(format_trec_results(results))
-    finally:
-        OUTPUT_LOCK.release()
+        yield TrecResult(query['query_id'], '0', hit['_id'], rank + 1,
+                         hit['_score'], 'baseline')
 
 
-def search_ltr(query: dict, elastic_url: str,
-               index: str, model: str, training: str) -> None:
+def search_ltr(query: dict, elastic_url: str, index: str, model: str,
+               training: List[RankLibRow], fv_size: int) -> List[TrecResult]:
     """
     Re-rank the result list using an ltr model.
     :param query: 
@@ -58,37 +46,26 @@ def search_ltr(query: dict, elastic_url: str,
     :param index: 
     :param model: 
     :param training: 
+    :param fv_size: 
     :return: 
     """
     es = Elasticsearch([elastic_url])
-    results = []
     features = []
 
-    print('getting training data for {}'.format(query['query_id']))
-    TRAINING_LOCK.acquire()
-    try:
-        with open(training, 'r') as f:
-            training = load_training_data(f, query['query_id'])
-    finally:
-        TRAINING_LOCK.release()
-
-    print('got training data for {}'.format(query['query_id']))
-
     normalised_features = {}
+    for k in range(fv_size):
+        normalised_features[str(k)] = 0.0
     pmids = set()
 
     for row in training:
         pmids.add(row.info)
-        # print(row.features)
         for k, v in row.features.items():
-            if k not in normalised_features:
-                normalised_features[k] = 0.0
             normalised_features[k] += float(v)
 
     for sum_weights in normalised_features.values():
         features.append({
             'constant_score': {
-                'boost': sum_weights / len(training),
+                'boost': sum_weights / len(pmids),
                 'filter': {
                     'terms': {
                         '_id': list(pmids)
@@ -117,19 +94,12 @@ def search_ltr(query: dict, elastic_url: str,
     # pprint(rescore_query)
     res = es.search(index=index, doc_type='doc',
                     size=10000, request_timeout=1000000,
-                    body=rescore_query)
+                    body=rescore_query, _source=False, explain=True)
 
     for rank, hit in enumerate(res['hits']['hits']):
-        results.append(TrecResult(query['query_id'], '0', hit['_id'], rank + 1,
-                                  hit['_score'], 'ltr'))
-
-    print('{} results for query {}'.format(len(results), query['query_id']))
-    OUTPUT_LOCK.acquire()
-    try:
-        OUTPUT_POINTER.write(format_trec_results(results))
-    finally:
-        OUTPUT_LOCK.release()
-    # OUTPUT_POINTER.write(format_trec_results(results))
+        if hit['_score'] is not None:
+            yield TrecResult(query['query_id'], '0', hit['_id'], rank + 1,
+                             hit['_score'], 'ltr')
 
 
 def format_trec_results(results: List[TrecResult]):
@@ -143,13 +113,15 @@ def format_trec_results(results: List[TrecResult]):
             r.query_id, r.q0, r.document_id, r.rank, r.score, r.label) for r in results]) + '\n'
 
 
-def load_training_data(file: io.TextIOWrapper, query_id: str) -> List[RankLibRow]:
+def load_training_data(file: io.TextIOWrapper) -> List[RankLibRow]:
     """
+    Create a list of ranklib objects where the feature vector is a sparse vector. It is up to
+    the user to grok this sparse vector.
     :return: 
     """
 
     def marshall_ranklib(row: str) -> RankLibRow:
-        target, _, *rest = row.split()
+        target, qid, *rest = row.split()
         # extract the info, if one exists
         info = ''
         if rest[-1][0] == '#':
@@ -162,17 +134,26 @@ def load_training_data(file: io.TextIOWrapper, query_id: str) -> List[RankLibRow
         features = {}
         for pair in rest:
             feature_id, value = pair.split(':')
-            features[feature_id] = float(value)
-        return RankLibRow(target=target, qid=query_id, features=features, info=info)
+            v = float(value)
+            if v > 0:
+                features[feature_id] = v
+        return RankLibRow(target=target, qid=qid, features=features, info=info)
 
     # marshall the data into rank lib row objects
-    training = []
     for line in file.readlines():
-        if line.split()[1].split(':')[-1] == str(query_id):
-            ranklib = marshall_ranklib(line)
-            training.append(ranklib)
+        ranklib = marshall_ranklib(line)
+        yield ranklib
 
-    return training
+
+def calc_feature_vector_size(file: io.TextIOWrapper) -> int:
+    """
+    Calculate the feature vector size by reading the training data of RankLib
+    :param file: RankLib training data
+    :return: 
+    """
+    lines = file.readlines()
+    row = lines[0].split()
+    return len(row[2:-1])
 
 
 if __name__ == '__main__':
@@ -181,9 +162,9 @@ if __name__ == '__main__':
     argparser.add_argument('-q', '--queries', help='Input queries file from medline2elastic.',
                            default=sys.stdin, type=argparse.FileType('r'))
     argparser.add_argument('--baseline-output', help='Output path for the trec_eval file.',
-                           required=True, type=argparse.FileType('w'))
+                           required=True, type=str)
     argparser.add_argument('--ltr-output', help='Output path for the trec_eval file.',
-                           required=True, type=argparse.FileType('w'))
+                           required=True, type=str)
     argparser.add_argument('--training', help='Input training data.', type=str,
                            default='training.txt')
     argparser.add_argument('--model', help='The stored model to use for ltr.', type=str,
@@ -197,26 +178,19 @@ if __name__ == '__main__':
 
     Q = json.load(args.queries)
 
-    TRAINING_POINTER = args.training
+    with open(args.baseline_output, 'w') as f:
+        for q in Q:
+            f.write(
+                format_trec_results(
+                    search_baseline(q, args.elastic_url, args.elastic_index)))
 
-    OUTPUT_POINTER = args.baseline_output
-    p = Pool()
-    baseline_partial = partial(search_baseline,
-                               elastic_url=args.elastic_url,
-                               index=args.elastic_index)
-    p.map(baseline_partial, Q)
-    p.close()
-    p.join()
-
-    OUTPUT_POINTER = args.ltr_output
-    p = Pool()
-    ltr_partial = partial(search_ltr,
-                          elastic_url=args.elastic_url,
-                          index=args.elastic_index,
-                          model=args.model,
-                          training=args.training)
-    p.map(ltr_partial, Q)
-    # for q in Q:
-    #     ltr_partial(q)
-    p.close()
-    p.join()
+    with open(args.training, 'r') as t:
+        T = list(load_training_data(t))
+    with open(args.training, 'r') as t:
+        S = calc_feature_vector_size(t)
+    with open(args.ltr_output, 'w') as f:
+        for q in Q:
+            f.write(
+                format_trec_results(
+                    search_ltr(q, args.elastic_url, args.elastic_index, args.model,
+                               T, S)))
