@@ -53,9 +53,6 @@ python3 ./search.py \
         --elastic-index ${elasticsearch_index} \
         --training training.txt
 
-sort -o ${trec_baseline} ${trec_baseline}
-sort -o ${trec_ltr} ${trec_ltr}
-
 log 'Evaluating...'
 
 # the "baseline" is now done

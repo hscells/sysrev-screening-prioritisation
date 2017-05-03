@@ -30,11 +30,11 @@ def search_baseline(query: dict, elastic_url: Elasticsearch,
     """
     es = Elasticsearch([elastic_url])
     res = es.search(index=index, doc_type='doc', body={'query': query['query']},
-                    size=10000, request_timeout=100)
+                    size=1000, request_timeout=10000, _source=False)
 
     for rank, hit in enumerate(res['hits']['hits']):
-        yield TrecResult(query['query_id'], '0', hit['_id'], rank + 1,
-                         hit['_score'], 'baseline')
+        yield TrecResult(query_id=query['document_id'], q0='0', document_id=hit['_id'],
+                         rank=rank + 1, score=hit['_score'], label='baseline')
 
 
 def search_ltr(query: dict, elastic_url: str, index: str, model: str,
@@ -58,9 +58,10 @@ def search_ltr(query: dict, elastic_url: str, index: str, model: str,
     pmids = set()
 
     for row in training:
-        pmids.add(row.info)
-        for k, v in row.features.items():
-            normalised_features[k] += float(v)
+        if row.qid == query['query_id']:
+            pmids.add(row.info)
+            for k, v in row.features.items():
+                normalised_features[k] += float(v)
 
     for sum_weights in normalised_features.values():
         features.append({
@@ -73,6 +74,9 @@ def search_ltr(query: dict, elastic_url: str, index: str, model: str,
                 }
             }
         })
+
+    del normalised_features
+    del pmids
 
     rescore_query = \
         {
@@ -93,13 +97,13 @@ def search_ltr(query: dict, elastic_url: str, index: str, model: str,
 
     # pprint(rescore_query)
     res = es.search(index=index, doc_type='doc',
-                    size=10000, request_timeout=1000000,
-                    body=rescore_query, _source=False, explain=True)
+                    size=1000, request_timeout=10000000,
+                    body=rescore_query, _source=False)
 
     for rank, hit in enumerate(res['hits']['hits']):
         if hit['_score'] is not None:
-            yield TrecResult(query['query_id'], '0', hit['_id'], rank + 1,
-                             hit['_score'], 'ltr')
+            yield TrecResult(query_id=query['document_id'], q0='0', document_id=hit['_id'],
+                             rank=rank + 1, score=hit['_score'], label='ltr')
 
 
 def format_trec_results(results: List[TrecResult]):
@@ -108,9 +112,9 @@ def format_trec_results(results: List[TrecResult]):
     :param results: A list of TrecResult objects
     :return: A pretty-printed string ready to be written to file
     """
-    return '\n'.join(
-        ['{}\t{}\t{}\t{}\t{}\t{}'.format(
-            r.query_id, r.q0, r.document_id, r.rank, r.score, r.label) for r in results]) + '\n'
+    return ''.join(
+        ['{}\t{}\t{}\t{}\t{}\t{}\n'.format(
+            r.query_id, r.q0, r.document_id, r.rank, r.score, r.label) for r in results])
 
 
 def load_training_data(file: io.TextIOWrapper) -> List[RankLibRow]:
@@ -122,6 +126,7 @@ def load_training_data(file: io.TextIOWrapper) -> List[RankLibRow]:
 
     def marshall_ranklib(row: str) -> RankLibRow:
         target, qid, *rest = row.split()
+        qid = int(qid.split(':')[-1])
         # extract the info, if one exists
         info = ''
         if rest[-1][0] == '#':
@@ -177,17 +182,20 @@ if __name__ == '__main__':
     args = argparser.parse_args()
 
     Q = json.load(args.queries)
-
+    print('Searching Baseline...')
     with open(args.baseline_output, 'w') as f:
         for q in Q:
             f.write(
                 format_trec_results(
                     search_baseline(q, args.elastic_url, args.elastic_index)))
 
+    print('Reading features...')
     with open(args.training, 'r') as t:
         T = list(load_training_data(t))
     with open(args.training, 'r') as t:
         S = calc_feature_vector_size(t)
+
+    print('Searching LTR...')
     with open(args.ltr_output, 'w') as f:
         for q in Q:
             f.write(
