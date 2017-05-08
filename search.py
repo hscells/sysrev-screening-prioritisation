@@ -8,8 +8,9 @@ import argparse
 import io
 import json
 import sys
+from pprint import pprint
 
-from collections import namedtuple
+from collections import namedtuple, OrderedDict
 from elasticsearch import Elasticsearch
 from typing import List
 
@@ -50,33 +51,30 @@ def search_ltr(query: dict, elastic_url: str, index: str, model: str,
     :return: 
     """
     es = Elasticsearch([elastic_url])
-    features = []
+    features = OrderedDict()
 
-    normalised_features = {}
-    for k in range(fv_size):
-        normalised_features[str(k)] = 0.0
-    pmids = set()
-
-    for row in training:
-        if row.qid == query['query_id']:
-            pmids.add(row.info)
-            for k, v in row.features.items():
-                normalised_features[k] += float(v)
-
-    for sum_weights in normalised_features.values():
-        features.append({
-            'constant_score': {
-                'boost': sum_weights / len(pmids),
-                'filter': {
-                    'terms': {
-                        '_id': list(pmids)
-                    }
+    for k in range(1, fv_size + 1):
+        features[k] = []
+        feature_queries = []
+        for row in training:
+            if row.qid == query['query_id']:
+                if k in row.features:
+                    feature_queries.append({
+                        'constant_score': {
+                            'boost': row.features[k],
+                            'filter': {
+                                'match': {
+                                    '_id': row.info
+                                }
+                            }
+                        }
+                    })
+        features[k] = \
+            {
+                "bool": {
+                    "should": feature_queries
                 }
             }
-        })
-
-    del normalised_features
-    del pmids
 
     rescore_query = \
         {
@@ -88,7 +86,7 @@ def search_ltr(query: dict, elastic_url: str, index: str, model: str,
                             'model': {
                                 'stored': model
                             },
-                            'features': features
+                            'features': list(features.values())
                         }
                     }
                 }
@@ -141,7 +139,7 @@ def load_training_data(file: io.TextIOWrapper) -> List[RankLibRow]:
             feature_id, value = pair.split(':')
             v = float(value)
             if v > 0:
-                features[feature_id] = v
+                features[int(feature_id)] = v
         return RankLibRow(target=target, qid=qid, features=features, info=info)
 
     # marshall the data into rank lib row objects
