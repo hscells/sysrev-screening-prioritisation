@@ -12,7 +12,8 @@ from pprint import pprint
 
 from collections import namedtuple, OrderedDict
 from elasticsearch import Elasticsearch
-from typing import List
+import progressbar
+from typing import List, Dict
 
 from ltrfeatures import RankLibRow
 
@@ -39,7 +40,7 @@ def search_baseline(query: dict, elastic_url: Elasticsearch,
 
 
 def search_ltr(query: dict, elastic_url: str, index: str, model: str,
-               training: List[RankLibRow], fv_size: int) -> List[TrecResult]:
+               training: Dict[int, RankLibRow], fv_size: int) -> List[TrecResult]:
     """
     Re-rank the result list using an ltr model.
     :param query: 
@@ -53,22 +54,23 @@ def search_ltr(query: dict, elastic_url: str, index: str, model: str,
     es = Elasticsearch([elastic_url])
     features = OrderedDict()
 
+    # Build the feature queries, here we are basically simulating the results list using a
+    # boolean query. The constant_score is the score being assigned as if there was a ranking
+    # function. This is just the way the elasticsearch ltr plugin works.
     for k in range(1, fv_size + 1):
-        features[k] = []
         feature_queries = []
-        for row in training:
-            if row.qid == query['query_id']:
-                if k in row.features:
-                    feature_queries.append({
-                        'constant_score': {
-                            'boost': row.features[k],
-                            'filter': {
-                                'match': {
-                                    '_id': row.info
-                                }
+        for row in training[query['query_id']]:
+            if k in row.features:
+                feature_queries.append({
+                    'constant_score': {
+                        'boost': row.features[k],
+                        'filter': {
+                            'match': {
+                                '_id': row.info
                             }
                         }
-                    })
+                    }
+                })
         features[k] = \
             {
                 "bool": {
@@ -76,6 +78,7 @@ def search_ltr(query: dict, elastic_url: str, index: str, model: str,
                 }
             }
 
+    # Once we have all the individual feature queries, we can build the rescore query.
     rescore_query = \
         {
             'query': query['query'],
@@ -115,7 +118,7 @@ def format_trec_results(results: List[TrecResult]):
             r.query_id, r.q0, r.document_id, r.rank, r.score, r.label) for r in results])
 
 
-def load_training_data(file: io.TextIOWrapper) -> List[RankLibRow]:
+def load_training_data(file: io.TextIOWrapper) -> Dict[int, RankLibRow]:
     """
     Create a list of ranklib objects where the feature vector is a sparse vector. It is up to
     the user to grok this sparse vector.
@@ -123,6 +126,12 @@ def load_training_data(file: io.TextIOWrapper) -> List[RankLibRow]:
     """
 
     def marshall_ranklib(row: str) -> RankLibRow:
+        """
+        This nasty looking function just reads a feature file line and marshalls it into a 
+        Ranklib object.
+        :param row: 
+        :return: 
+        """
         target, qid, *rest = row.split()
         qid = int(qid.split(':')[-1])
         # extract the info, if one exists
@@ -142,10 +151,16 @@ def load_training_data(file: io.TextIOWrapper) -> List[RankLibRow]:
                 features[int(feature_id)] = v
         return RankLibRow(target=target, qid=qid, features=features, info=info)
 
+    ranklib_rows = {}
+
     # marshall the data into rank lib row objects
     for line in file.readlines():
         ranklib = marshall_ranklib(line)
-        yield ranklib
+        if ranklib.qid not in ranklib_rows:
+            ranklib_rows[ranklib.qid] = []
+        ranklib_rows[ranklib.qid].append(ranklib)
+
+    return ranklib_rows
 
 
 def calc_feature_vector_size(file: io.TextIOWrapper) -> int:
@@ -182,20 +197,22 @@ if __name__ == '__main__':
     Q = json.load(args.queries)
     print('Searching Baseline...')
     with open(args.baseline_output, 'w') as f:
-        for q in Q:
+        bar = progressbar.ProgressBar()
+        for q in bar(Q):
             f.write(
                 format_trec_results(
                     search_baseline(q, args.elastic_url, args.elastic_index)))
 
     print('Reading features...')
     with open(args.training, 'r') as t:
-        T = list(load_training_data(t))
+        T = load_training_data(t)
     with open(args.training, 'r') as t:
         S = calc_feature_vector_size(t)
 
     print('Searching LTR...')
     with open(args.ltr_output, 'w') as f:
-        for q in Q:
+        bar = progressbar.ProgressBar()
+        for q in bar(Q):
             f.write(
                 format_trec_results(
                     search_ltr(q, args.elastic_url, args.elastic_index, args.model,
