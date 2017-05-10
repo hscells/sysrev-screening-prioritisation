@@ -21,14 +21,10 @@ class AbstractFeature(object):
     `ltrfeatures.py` script.
     """
 
-    def __init__(self, statistics: dict, field: str, query: dict, query_vocabulary: dict):
+    def __init__(self, statistics: dict, query: dict, query_vocabulary: dict):
         self.statistics = statistics
-        self.field = field
         self.query = query
         self.query_vocabulary = query_vocabulary
-
-        self.field_statistics = statistics['term_vectors'][field]['field_statistics']
-        self.term_statistics = statistics['term_vectors'][field]['terms']
 
     def calc(self) -> float:
         raise NotImplementedError()

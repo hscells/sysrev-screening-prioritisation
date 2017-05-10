@@ -8,11 +8,10 @@ import argparse
 import io
 import json
 import sys
-from pprint import pprint
 
+import progressbar
 from collections import namedtuple, OrderedDict
 from elasticsearch import Elasticsearch
-import progressbar
 from typing import List, Dict
 
 from ltrfeatures import RankLibRow
@@ -154,7 +153,8 @@ def load_training_data(file: io.TextIOWrapper) -> Dict[int, RankLibRow]:
     ranklib_rows = {}
 
     # marshall the data into rank lib row objects
-    for line in file.readlines():
+    bar = progressbar.ProgressBar()
+    for line in bar(file.readlines()):
         ranklib = marshall_ranklib(line)
         if ranklib.qid not in ranklib_rows:
             ranklib_rows[ranklib.qid] = []
