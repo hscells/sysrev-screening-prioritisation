@@ -45,7 +45,7 @@ java -jar ${ranklib_path} -train training.txt \
                           -gmax 1 \
                           -metric2t MAP \
                           -tvs 0.3 \
-                          -estop 1000
+                          -tolerance 0.005
 
 log 'Uploading model and searching...'
 
