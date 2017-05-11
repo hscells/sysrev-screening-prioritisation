@@ -69,4 +69,8 @@ trec_eval -q qrels.txt ${trec_baseline} > ${output_dest}baseline-${timestamp}.tx
 # now, evaluate the fallback PICO
 trec_eval -q qrels.txt ${trec_ltr} > ${output_dest}ltr-${timestamp}.txt
 
+# Also evaluate using NDCG
+trec_eval -q qrels.txt -m ndcg ${trec_baseline} > ${output_dest}baseline-ndcg-${timestamp}.txt
+trec_eval -q qrels.txt -m ndcg ${trec_ltr} > ${output_dest}ltr-ndgc-${timestamp}.txt
+
 log 'Done!'
