@@ -59,17 +59,19 @@ def search_ltr(query: dict, elastic_url: str, index: str, model: str,
     for k in range(1, fv_size + 1):
         feature_queries = []
         for row in training[query['query_id']]:
+            score = 0.0
             if k in row.features:
-                feature_queries.append({
-                    'constant_score': {
-                        'boost': row.features[k],
-                        'filter': {
-                            'match': {
-                                '_id': row.info
-                            }
+                score = row.features[k]
+            feature_queries.append({
+                'constant_score': {
+                    'boost': score,
+                    'filter': {
+                        'match': {
+                            '_id': row.info
                         }
                     }
-                })
+                }
+            })
         features[k] = \
             {
                 "bool": {

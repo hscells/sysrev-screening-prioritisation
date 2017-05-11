@@ -10,7 +10,7 @@ queries_json_file=./elastic-pico-queries.json
 output_dest=./results/
 
 # Don't touch these variable
-elasticsearch_address=${elasticsearch_host}:${elasticsearch_port} # calculated elasticsearch url
+elasticsearch_address=${elasticsearch_host}:${elasticsearch_port} # calculated es url
 timestamp=$(date | sed 's/ //g' | cut -c 1-14) # unique name for the file
 trec_baseline=${output_dest}trec_baseline_${timestamp}.txt
 trec_ltr=${output_dest}trec_ltr_${timestamp}.txt
@@ -22,7 +22,7 @@ function log {
 nc -zc ${elasticsearch_host} ${elasticsearch_port} &> /dev/null
 if [ $? -ne 0 ]
 then
-    log 'elasticsearch is not running, or it is not running on ${elastic_address}.'
+    log "elasticsearch is not running, or it is not running on ${elasticsearch_address}."
     exit 1
 fi
 
@@ -34,16 +34,24 @@ python3 ./ltrfeatures.py --mapping ./pmid-mapping.json \
                          --elastic-url http://${elasticsearch_address} \
                          --elastic-index ${elasticsearch_index} > training.txt
 
-log 'Training a model......'
+log 'Training a model...'
 
 # Train a model
 # https://sourceforge.net/p/lemur/wiki/RankLib%20How%20to%20use/
-java -jar ${ranklib_path} -train training.txt -ranker 6 -save ${model_name}.txt -gmax 1 -metric2t MAP
+java -jar ${ranklib_path} -train training.txt \
+                          -ranker 3 \
+                          -save ${model_name}.txt \
+                          -gmax 1 \
+                          -metric2t MAP \
+                          -tvs 0.3 \
+                          -estop 1000
 
 log 'Uploading model and searching...'
 
 # Now we can upload the model to elasticsearch
-python3 ./uploadscript.py --input ${model_name}.txt --elastic-url http://${elasticsearch_address} -v
+python3 ./uploadscript.py --input ${model_name}.txt \
+                          --elastic-url http://${elasticsearch_address} \
+                          -v
 
 python3 ./search.py \
         -q ${queries_json_file} \

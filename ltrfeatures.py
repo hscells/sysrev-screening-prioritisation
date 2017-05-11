@@ -47,8 +47,10 @@ import json
 import pkgutil
 import sys
 from functools import partial
+from urllib.parse import urljoin
 
 import progressbar
+import requests
 from collections import namedtuple, OrderedDict
 from elasticsearch import Elasticsearch
 from typing import List, Dict
@@ -114,9 +116,6 @@ def generate_query_vocabulary(queries: List[OrderedDict]) -> OrderedDict:
     return OrderedDict(sorted(vocabulary.items()), key=lambda x: x[0])
 
 
-def feature_id(pmid: str, feature: str) -> str: return '{}{}'.format(pmid, feature)
-
-
 def feature_vector_mapping(mapping: OrderedDict, features: Dict[str, AbstractFeature],
                            queries: List[OrderedDict]) -> OrderedDict:
     """
@@ -131,18 +130,15 @@ def feature_vector_mapping(mapping: OrderedDict, features: Dict[str, AbstractFea
     inverted_vocabulary = OrderedDict()
     idx = 1
     for query in queries:
-        documents = mapping[str(query['document_id'])]
         vocab = generate_query_vocabulary([OrderedDict([('query', query['query'])])])
-        for pmid in sorted(documents.keys()):
-            query_fields = set()
-            for k in sorted(vocab.keys()):
-                query_fields.add(k)
+        query_fields = set()
+        for k in sorted(vocab.keys()):
+            query_fields.add(k)
 
-            for feature_name in sorted(features):
-                ident = feature_id(pmid, feature_name)
-                if ident not in inverted_vocabulary:
-                    inverted_vocabulary[feature_id(pmid, feature_name)] = idx
-                    idx += 1
+        for feature_name in sorted(features):
+            if feature_name not in inverted_vocabulary:
+                inverted_vocabulary[feature_name] = idx
+                idx += 1
     return inverted_vocabulary
 
 
@@ -169,6 +165,22 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: dict
     query_terms = generate_query_vocabulary([OrderedDict([('query', es_query)])])
     fields = list(query_terms.keys())
 
+    del query_terms['key']
+
+    for i in range(len(fields)):
+        field = fields[i]
+        if field in ['population', 'intervention', 'outcomes']:
+            fields.append(field + '.stemmed')
+
+    for k in query_terms.keys():
+        t = ' '.join(query_terms[k])
+        resp = requests.get(urljoin(elastic_url, elastic_index) + '/_analyze',
+                            data=json.dumps({
+                                'text': t,
+                                'analyzer': 'medline_analyser'
+                            }))
+        query_terms[k] = list(set([x['token'] for x in json.loads(resp.text)['tokens']]))
+
     # We look the the studies relevant to this document (systematic review)
     for pmid, relevance in judged_documents.items():
         # The elasticsearch term vector api is used to get collection statistics
@@ -185,8 +197,6 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: dict
             # We create an ordered dictionary to store the features
             # RankLib likes it when the features are ordered by feature id
             features = OrderedDict()
-            for k in range(len(fv_mapping)):
-                features[k + 1] = 0.0
 
             # now we can go ahead and fill in the feature vector with values
             for feature_name, feature_class in feature_classes.items():
@@ -194,7 +204,8 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: dict
                 # noinspection PyCallingNonCallable
                 f = feature_class(statistics=statistics, query=es_query,
                                   query_vocabulary=query_terms).calc()
-                features[fv_mapping[feature_id(pmid, feature_name)]] = f
+
+                features[fv_mapping[feature_name]] = f
 
             relevance = judged_documents[pmid]
             yield RankLibRow(target=relevance, qid=query_id, info=pmid,
