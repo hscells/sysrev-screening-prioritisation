@@ -32,7 +32,8 @@ log 'Extracting features...'
 python3 ./ltrfeatures.py --mapping ./pmid-mapping.json \
                          --queries ${queries_json_file} \
                          --elastic-url http://${elasticsearch_address} \
-                         --elastic-index ${elasticsearch_index} > training.txt
+                         --elastic-index ${elasticsearch_index} \
+                         --output training.txt
 
 log 'Training a model...'
 
