@@ -55,7 +55,10 @@ from collections import namedtuple, OrderedDict
 from elasticsearch import Elasticsearch
 from typing import List, Dict
 
-from .features.feature import AbstractFeature
+try:
+    from features.feature import AbstractFeature
+except ImportError:
+    from .features.feature import AbstractFeature
 
 RankLibRow = namedtuple('RankLibRow', ['target', 'qid', 'features', 'info'])
 
@@ -159,7 +162,7 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: dict
     es = Elasticsearch([elastic_url])
 
     document_id = str(query['document_id'])
-    query_id = query['query_id']
+    topic_id = query['document_id']
     es_query = query['query']
     judged_documents = mapping[document_id]
     query_terms = generate_query_vocabulary([OrderedDict([('query', es_query)])])
@@ -208,7 +211,7 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: dict
                 features[fv_mapping[feature_name]] = f
 
             relevance = judged_documents[pmid]
-            yield RankLibRow(target=relevance, qid=query_id, info=pmid,
+            yield RankLibRow(target=relevance, qid=topic_id, info=pmid,
                              features=features)
 
 
