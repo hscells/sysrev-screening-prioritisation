@@ -12,9 +12,8 @@ import sys
 import progressbar
 from collections import namedtuple, OrderedDict
 from elasticsearch import Elasticsearch
+from .ltrfeatures import RankLibRow
 from typing import List, Dict
-
-from ltrfeatures import RankLibRow
 
 TrecResult = namedtuple('TrecResult',
                         ['query_id', 'q0', 'document_id', 'rank', 'score', 'label'])
@@ -119,39 +118,37 @@ def format_trec_results(results: List[TrecResult]):
             r.query_id, r.q0, r.document_id, r.rank, r.score, r.label) for r in results])
 
 
+def marshall_ranklib(row: str) -> RankLibRow:
+    """
+    This nasty looking function just reads a feature file line and marshalls it into a 
+    Ranklib object.
+    :param row: 
+    :return: 
+    """
+    target, qid, *rest = row.split()
+    qid = int(qid.split(':')[-1])
+    # extract the info, if one exists
+    info = ''
+    if rest[-1][0] == '#':
+        info = rest[-1]
+        info = info.replace('#', '').strip()
+    # remove info item
+    if info != '':
+        rest = rest[:-2]
+    # parse the features
+    features = {}
+    for pair in rest:
+        feature_id, value = pair.split(':')
+        features[int(feature_id)] = float(value)
+    return RankLibRow(target=target, qid=qid, features=features, info=info)
+
+
 def load_training_data(file: io.TextIOWrapper) -> Dict[int, RankLibRow]:
     """
     Create a list of ranklib objects where the feature vector is a sparse vector. It is up to
     the user to grok this sparse vector.
     :return: 
     """
-
-    def marshall_ranklib(row: str) -> RankLibRow:
-        """
-        This nasty looking function just reads a feature file line and marshalls it into a 
-        Ranklib object.
-        :param row: 
-        :return: 
-        """
-        target, qid, *rest = row.split()
-        qid = int(qid.split(':')[-1])
-        # extract the info, if one exists
-        info = ''
-        if rest[-1][0] == '#':
-            info = rest[-1]
-            info = info.replace('#', '').strip()
-        # remove info item
-        if info != '':
-            rest = rest[:-2]
-        # parse the features
-        features = {}
-        for pair in rest:
-            feature_id, value = pair.split(':')
-            v = float(value)
-            if v > 0:
-                features[int(feature_id)] = v
-        return RankLibRow(target=target, qid=qid, features=features, info=info)
-
     ranklib_rows = {}
 
     # marshall the data into rank lib row objects

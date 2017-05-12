@@ -55,7 +55,7 @@ from collections import namedtuple, OrderedDict
 from elasticsearch import Elasticsearch
 from typing import List, Dict
 
-from features.feature import AbstractFeature
+from .features.feature import AbstractFeature
 
 RankLibRow = namedtuple('RankLibRow', ['target', 'qid', 'features', 'info'])
 
