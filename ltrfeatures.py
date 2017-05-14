@@ -47,6 +47,7 @@ import json
 import pkgutil
 import sys
 from functools import partial
+from pprint import pprint
 from urllib.parse import urljoin
 
 import progressbar
@@ -213,6 +214,8 @@ def generate_features(query: OrderedDict, mapping: OrderedDict, fv_mapping: dict
             relevance = judged_documents[pmid]
             yield RankLibRow(target=relevance, qid=topic_id, info=pmid,
                              features=features)
+        else:
+            print('No statistics found for {} in topic {}'.format(pmid, topic_id))
 
 
 def format_ranklib_row(row: RankLibRow) -> str:
@@ -283,7 +286,7 @@ if __name__ == '__main__':
                            type=argparse.FileType('r'))
     # download this from medline2elastic at /api/queries/elastic/pico
     argparser.add_argument('-q', '--queries', help='The queries file', required=True,
-                           type=argparse.FileType('r'))
+                           type=argparse.FileType('r', encoding='utf-8'))
     argparser.add_argument('-o', '--output', help='The file to output to',
                            type=argparse.FileType('w'), default=sys.stdout)
     argparser.add_argument('--elastic-url', help='Address of the elasticsearch instance',
