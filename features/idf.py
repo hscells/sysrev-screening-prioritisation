@@ -35,7 +35,7 @@ class IDFSum(AbstractFeature):
                 if term in term_stats:
                     if term not in weights:
                         weights[term] = 0
-                    weights[term] += math.log10(field_stats['doc_count'] / term_stats[term]['ttf'])
+                    weights[term] += math.log10(field_stats['doc_count'] / term_stats[term]['doc_freq'])
 
         # Next, convert it to a list
         weights = list(weights.values())
